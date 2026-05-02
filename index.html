@@ -2644,4 +2644,50 @@ function changeAdminPassword(){
   if(p1.length<4){alert('Password must be at least 4 characters');return;}
   if(p1!==p2){alert('Passwords do not match');return;}
   DB.admin.password=p1;saveDB(DB);
-  alert('Ad
+  alert('Admin password updated');
+  document.getElementById('newAdminPass').value='';
+  document.getElementById('confirmAdminPass').value='';
+}
+
+function importData(input){
+  var file=input.files[0];
+  if(!file){return;}
+  var reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      var imported=JSON.parse(e.target.result);
+      if(!imported.admin||!imported.kids){alert('Invalid backup file. Must be a Learning Portal JSON export.');return;}
+      var msg='This will replace ALL current data with the imported data.\n\n';
+      msg+='Imported file contains:\n';
+      msg+='- '+imported.kids.length+' student account(s)\n';
+      msg+='- Admin password will be updated\n';
+      msg+='- API keys will be imported\n\n';
+      msg+='Current data will be lost. Continue?';
+      if(!confirm(msg)){input.value='';return;}
+      DB=imported;
+      saveDB(DB);
+      alert('Data imported successfully! The page will now reload.');
+      location.reload();
+    }catch(err){
+      alert('Error reading file: '+err.message);
+    }
+  };
+  reader.readAsText(file);
+  input.value='';
+}
+
+function exportData(){
+  var data=JSON.stringify(DB,null,2);
+  var blob=new Blob([data],{type:'application/json'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;
+  a.download='learning-portal-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// === INITIALIZE APP ===
+showLogin();
+
+</script></body></html>
