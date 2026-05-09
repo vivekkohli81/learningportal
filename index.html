@@ -383,10 +383,15 @@ async function callAI(prompt,maxTokens){
   }
 }
 
+function isHosted(){return location.protocol==='https:'||location.protocol==='http:'&&location.hostname!==''}
+
 async function callClaude(prompt,maxTokens){
-  let res=await fetch('https://api.anthropic.com/v1/messages',{
+  let url=isHosted()?'/api/claude':'https://api.anthropic.com/v1/messages';
+  let headers={'Content-Type':'application/json','x-api-key':DB.settings.key,'anthropic-version':'2023-06-01'};
+  if(!isHosted())headers['anthropic-dangerous-direct-browser-access']='true';
+  let res=await fetch(url,{
     method:'POST',
-    headers:{'Content-Type':'application/json','x-api-key':DB.settings.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    headers:headers,
     body:JSON.stringify({model:DB.settings.model,max_tokens:maxTokens||1500,messages:[{role:'user',content:prompt}]})
   });
   let data=await res.json();
@@ -402,7 +407,8 @@ async function callGemini(prompt,maxTokens){
     if(seen.has(model))continue;
     seen.add(model);
     try{
-      let url='https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+DB.settings.geminiKey;
+      let directUrl='https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+DB.settings.geminiKey;
+      let url=isHosted()?'/api/gemini?url='+encodeURIComponent(directUrl):directUrl;
       let res=await fetch(url,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
