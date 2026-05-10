@@ -804,6 +804,8 @@ function go(screen){
     case 'ib7': renderIB7(SC); break;
     case 'science': renderScience(SC); break;
     case 'comp': renderCompPrep(SC); break;
+    case 'sciVideos': renderSciVideos(SC); break;
+    case 'coding': renderCoding(SC); break;
     case 'resources': renderResources(SC); break;
     case 'writing': openWritingCentre(); break;
     case 'settings': renderStudentSettings(SC); break;
@@ -1549,6 +1551,10 @@ function renderScience(el){
   el.innerHTML=`
   <div class="cd">
     <h2>Science</h2>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="bt" onclick="go('sciVideos')" style="background:#06b6d4;color:#fff;padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:0.9em">Video Lessons</button>
+      <button class="bt" onclick="go('coding')" style="background:#8b5cf6;color:#fff;padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:0.9em">Learn Coding</button>
+    </div>
     <div class="ds">Explore Biology, Chemistry, Physics, and Earth & Space. Your level adjusts based on how you do.</div>
     <div class="sg">
       ${topicCard('science','biology','Biology','Cells, body systems, ecosystems, and living things','#10b981')}
@@ -2693,6 +2699,144 @@ function exportData(){
   a.download='learning-portal-backup-'+new Date().toISOString().slice(0,10)+'.json';
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// === SCIENCE VIDEO LESSONS ===
+function renderSciVideos(el){
+  var phases=[
+    {title:'Phase 1: Animals & Living Things',color:'#10b981',weeks:'Weeks 1-4',videos:[
+      {name:'What Makes Something Alive?',url:'https://www.youtube.com/results?search_query=SciShow+Kids+what+makes+something+alive',src:'SciShow Kids'},
+      {name:'Animal Classification',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+animal+classification',src:'Crash Course Kids'},
+      {name:'Food Chains & Food Webs',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+food+chains',src:'Crash Course Kids'},
+      {name:'Animal Habitats & Adaptations',url:'https://www.youtube.com/results?search_query=National+Geographic+Kids+animal+adaptations',src:'Nat Geo Kids'},
+      {name:'Plant Life Cycles',url:'https://www.youtube.com/results?search_query=SciShow+Kids+plant+life+cycle',src:'SciShow Kids'}
+    ]},
+    {title:'Phase 2: Human Body & Cells',color:'#ef4444',weeks:'Weeks 5-8',videos:[
+      {name:'What Are Cells?',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+cells',src:'Crash Course Kids'},
+      {name:'Plant vs Animal Cells',url:'https://www.youtube.com/results?search_query=Amoeba+Sisters+plant+animal+cells',src:'Amoeba Sisters'},
+      {name:'The Digestive System',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+digestive+system',src:'Crash Course Kids'},
+      {name:'The Circulatory System',url:'https://www.youtube.com/results?search_query=SciShow+Kids+heart+circulatory',src:'SciShow Kids'},
+      {name:'The Nervous System',url:'https://www.youtube.com/results?search_query=Mystery+Doug+nervous+system+brain',src:'Mystery Doug'}
+    ]},
+    {title:'Phase 3: Earth, Rocks & Weather',color:'#f59e0b',weeks:'Weeks 9-12',videos:[
+      {name:'Types of Rocks',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+types+of+rocks',src:'Crash Course Kids'},
+      {name:'The Water Cycle',url:'https://www.youtube.com/results?search_query=SciShow+Kids+water+cycle',src:'SciShow Kids'},
+      {name:'Weather vs Climate',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+weather+climate',src:'Crash Course Kids'},
+      {name:'Volcanoes & Earthquakes',url:'https://www.youtube.com/results?search_query=National+Geographic+Kids+volcanoes',src:'Nat Geo Kids'},
+      {name:'Layers of the Earth',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+layers+earth',src:'Crash Course Kids'}
+    ]},
+    {title:'Phase 4: Forces, Motion & Energy',color:'#6366f1',weeks:'Weeks 13-18',videos:[
+      {name:'What Are Forces?',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+forces+push+pull',src:'Crash Course Kids'},
+      {name:'Gravity Explained',url:'https://www.youtube.com/results?search_query=SciShow+Kids+gravity',src:'SciShow Kids'},
+      {name:'Simple Machines',url:'https://www.youtube.com/results?search_query=Mystery+Doug+simple+machines',src:'Mystery Doug'},
+      {name:'Electricity & Circuits',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+electricity+circuits',src:'Crash Course Kids'},
+      {name:'Light & Sound',url:'https://www.youtube.com/results?search_query=SciShow+Kids+light+sound+waves',src:'SciShow Kids'}
+    ]},
+    {title:'Phase 5: Matter & Materials',color:'#ec4899',weeks:'Weeks 19-24',videos:[
+      {name:'States of Matter',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+states+of+matter',src:'Crash Course Kids'},
+      {name:'Atoms & Elements',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+atoms+elements',src:'Crash Course Kids'},
+      {name:'Chemical vs Physical Changes',url:'https://www.youtube.com/results?search_query=SciShow+Kids+chemical+physical+changes',src:'SciShow Kids'},
+      {name:'Mixtures & Solutions',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+mixtures+solutions',src:'Crash Course Kids'},
+      {name:'The Periodic Table',url:'https://www.youtube.com/results?search_query=Amoeba+Sisters+periodic+table+intro',src:'Amoeba Sisters'}
+    ]},
+    {title:'Phase 6: Space & Universe',color:'#8b5cf6',weeks:'Weeks 25-30',videos:[
+      {name:'Our Solar System',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+solar+system',src:'Crash Course Kids'},
+      {name:'Why Do We Have Seasons?',url:'https://www.youtube.com/results?search_query=SciShow+Kids+seasons+earth+tilt',src:'SciShow Kids'},
+      {name:'Moon Phases Explained',url:'https://www.youtube.com/results?search_query=Crash+Course+Kids+moon+phases',src:'Crash Course Kids'},
+      {name:'Stars & Galaxies',url:'https://www.youtube.com/results?search_query=Kurzgesagt+solar+system+stars',src:'Kurzgesagt'},
+      {name:'Space Exploration',url:'https://www.youtube.com/results?search_query=National+Geographic+Kids+space+exploration',src:'Nat Geo Kids'}
+    ]}
+  ];
+  var html='<div class="cd"><h2 style="color:#06b6d4">Science Video Lessons</h2>';
+  html+='<div class="ds">Watch videos in order, phase by phase. Each phase builds on the previous one. Start with Phase 1!</div>';
+  html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0">';
+  html+='<a href="https://phet.colorado.edu/" target="_blank" style="font-size:12px;padding:4px 10px;background:#06b6d422;color:#06b6d4;border-radius:8px;text-decoration:none">PhET Virtual Labs</a>';
+  html+='<a href="https://www.dkfindout.com/" target="_blank" style="font-size:12px;padding:4px 10px;background:#06b6d422;color:#06b6d4;border-radius:8px;text-decoration:none">DK Find Out</a>';
+  html+='<a href="https://spaceplace.nasa.gov/" target="_blank" style="font-size:12px;padding:4px 10px;background:#06b6d422;color:#06b6d4;border-radius:8px;text-decoration:none">NASA Space Place</a>';
+  html+='<a href="https://www.science-sparks.com/" target="_blank" style="font-size:12px;padding:4px 10px;background:#06b6d422;color:#06b6d4;border-radius:8px;text-decoration:none">Home Experiments</a>';
+  html+='</div>';
+  phases.forEach(function(p){
+    html+='<div style="margin-bottom:16px;border-left:4px solid '+p.color+';padding:12px;background:var(--card);border-radius:0 12px 12px 0">';
+    html+='<h3 style="margin:0 0 4px;color:'+p.color+'">'+p.title+'</h3>';
+    html+='<div style="font-size:12px;color:var(--t2);margin-bottom:8px">'+p.weeks+'</div>';
+    p.videos.forEach(function(v){
+      html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
+      html+='<a href="'+v.url+'" target="_blank" style="font-size:13px;color:var(--p);text-decoration:none">'+v.name+'</a>';
+      html+='<span style="font-size:11px;background:'+p.color+'22;color:'+p.color+';padding:1px 6px;border-radius:6px">'+v.src+'</span>';
+      html+='</div>';
+    });
+    html+='</div>';
+  });
+  html+='<div style="margin-top:8px"><button class="bt" onclick="go(\'science\')" style="background:var(--p);color:#fff;padding:8px 16px;border:none;border-radius:8px;cursor:pointer">Back to Science Quizzes</button></div>';
+  html+='</div>';
+  el.innerHTML=html;
+}
+
+// === CODING SECTION ===
+function renderCoding(el){
+  var stages=[
+    {title:'Stage 1: Advanced Scratch',color:'#f59e0b',duration:'Weeks 1-4',desc:'Variables, conditionals, loops, cloning, broadcasting',
+     links:[
+       {name:'Scratch Editor',url:'https://scratch.mit.edu/projects/editor/',desc:'Open Scratch and start building'},
+       {name:'Scratch Tutorials',url:'https://scratch.mit.edu/ideas',desc:'Official guided projects'},
+       {name:'Code.org Scratch-style',url:'https://studio.code.org/courses',desc:'Structured block coding courses'}
+     ],
+     challenges:['Build a maze game where a character moves with arrow keys','Create a quiz game that asks 5 questions and keeps score','Make an animation with at least 3 sprites that interact']},
+    {title:'Stage 2: Scratch to Code',color:'#10b981',duration:'Weeks 5-8',desc:'Understand that blocks = text code. Compare side by side.',
+     links:[
+       {name:'Scratch to Python',url:'https://www.youtube.com/results?search_query=scratch+to+python+for+kids+beginner',desc:'Video tutorials on transitioning'},
+       {name:'Trinket.io',url:'https://trinket.io/python',desc:'Write Python in your browser'},
+       {name:'Blockly Games',url:'https://blockly.games/',desc:'Puzzles that show blocks AND code'}
+     ],
+     challenges:['Look at a Scratch project and write down what each block does in English','Use Blockly Games to solve all Maze levels','Try writing a simple "Hello World" in Python on Trinket']},
+    {title:'Stage 3: Python Basics',color:'#6366f1',duration:'Weeks 9-16',desc:'Print, input, variables, if/else, loops',
+     links:[
+       {name:'Replit (Python)',url:'https://replit.com/languages/python3',desc:'Write and run Python in browser'},
+       {name:'Khan Academy Computing',url:'https://www.khanacademy.org/computing/intro-to-python-fundamentals',desc:'Free structured Python course'},
+       {name:'Python for Kids Videos',url:'https://www.youtube.com/results?search_query=python+for+kids+beginners+tutorial',desc:'Video tutorials'}
+     ],
+     challenges:['Mad Libs generator: ask for a noun, verb, adjective and make a funny story','Number guessing game: computer picks 1-100, you guess with hints','Calculator: ask for 2 numbers and an operation, show the result']},
+    {title:'Stage 4: Python Projects',color:'#ef4444',duration:'Weeks 17-26',desc:'Lists, functions, simple file handling',
+     links:[
+       {name:'Replit (Python)',url:'https://replit.com/languages/python3',desc:'Build bigger projects here'},
+       {name:'Project Euler (easy)',url:'https://projecteuler.net/archives',desc:'Maths + coding challenge problems'},
+       {name:'Coding Bat',url:'https://codingbat.com/python',desc:'Practice problems with instant feedback'}
+     ],
+     challenges:['Quiz app: store questions in a list, ask them randomly, track score','Story generator: combine random characters, settings, and plots','Rock-Paper-Scissors game against the computer']},
+    {title:'Stage 5: Web Basics (HTML+CSS)',color:'#ec4899',duration:'Weeks 27-36',desc:'Web page structure, styling, links, images',
+     links:[
+       {name:'Khan Academy Web',url:'https://www.khanacademy.org/computing/computer-programming/html-css',desc:'Free HTML/CSS course'},
+       {name:'CodePen',url:'https://codepen.io/pen/',desc:'Build web pages in browser'},
+       {name:'W3Schools HTML',url:'https://www.w3schools.com/html/',desc:'Reference and tutorials'}
+     ],
+     challenges:['Create an "About Me" web page with headings, paragraphs, and an image','Build a Science Facts page with styled cards for each topic','Design a simple portfolio with links to your Scratch and Python projects']},
+    {title:'Stage 6: Interactive Web (JavaScript)',color:'#8b5cf6',duration:'Weeks 37-45',desc:'Buttons, events, DOM manipulation',
+     links:[
+       {name:'Khan Academy JS',url:'https://www.khanacademy.org/computing/computer-programming/html-css-js',desc:'Free JavaScript course'},
+       {name:'CodePen',url:'https://codepen.io/pen/',desc:'Add JavaScript to your pages'},
+       {name:'JavaScript.info',url:'https://javascript.info/first-steps',desc:'Modern JavaScript tutorial'}
+     ],
+     challenges:['Build an interactive quiz that shows right/wrong answers','Create a simple calculator with buttons','Make a to-do list app where you can add and remove items']}
+  ];
+  var html='<div class="cd"><h2 style="color:#8b5cf6">Learn Coding</h2>';
+  html+='<div class="ds">Follow these stages in order. Each stage builds on the last. Spend about 30 minutes each Saturday on coding.</div>';
+  stages.forEach(function(s){
+    html+='<div style="margin-bottom:16px;border-left:4px solid '+s.color+';padding:12px;background:var(--card);border-radius:0 12px 12px 0">';
+    html+='<h3 style="margin:0 0 2px;color:'+s.color+'">'+s.title+'</h3>';
+    html+='<div style="font-size:12px;color:var(--t2);margin-bottom:4px">'+s.duration+' — '+s.desc+'</div>';
+    html+='<div style="font-size:13px;font-weight:600;margin:8px 0 4px">Resources:</div>';
+    s.links.forEach(function(l){
+      html+='<div style="margin-bottom:4px"><a href="'+l.url+'" target="_blank" style="font-size:13px;color:var(--p);text-decoration:none">'+l.name+'</a> <span style="font-size:11px;color:var(--t2)">— '+l.desc+'</span></div>';
+    });
+    html+='<div style="font-size:13px;font-weight:600;margin:8px 0 4px">Challenges:</div>';
+    s.challenges.forEach(function(c,i){
+      html+='<div style="font-size:12px;margin-bottom:3px;color:var(--t2)">'+(i+1)+'. '+c+'</div>';
+    });
+    html+='</div>';
+  });
+  html+='<div style="margin-top:8px"><button class="bt" onclick="go(\'science\')" style="background:var(--p);color:#fff;padding:8px 16px;border:none;border-radius:8px;cursor:pointer">Back to Science</button></div>';
+  html+='</div>';
+  el.innerHTML=html;
 }
 
 // === COMPETITION PREP QUESTION BANKS ===
