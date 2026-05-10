@@ -110,7 +110,7 @@ function defaultKidProgress(){
     maths:{geometry:{lv:1,ok:0,no:0,h:[],sn:[]},problemSolving:{lv:1,ok:0,no:0,h:[],sn:[]},number:{lv:1,ok:0,no:0,h:[],sn:[]}},
     ib7:{wholeNumbers:{lv:1,ok:0,no:0,h:[],sn:[]},numberProperties:{lv:1,ok:0,no:0,h:[],sn:[]},linesAngles:{lv:1,ok:0,no:0,h:[],sn:[]},numberStrategies:{lv:1,ok:0,no:0,h:[],sn:[]},posNegNumbers:{lv:1,ok:0,no:0,h:[],sn:[]},fractions:{lv:1,ok:0,no:0,h:[],sn:[]},decimals:{lv:1,ok:0,no:0,h:[],sn:[]},algebra:{lv:1,ok:0,no:0,h:[],sn:[]},percentage:{lv:1,ok:0,no:0,h:[],sn:[]},equations:{lv:1,ok:0,no:0,h:[],sn:[]},polygons:{lv:1,ok:0,no:0,h:[],sn:[]},measurementArea:{lv:1,ok:0,no:0,h:[],sn:[]},solids:{lv:1,ok:0,no:0,h:[],sn:[]},volumeMass:{lv:1,ok:0,no:0,h:[],sn:[]},coordGeometry:{lv:1,ok:0,no:0,h:[],sn:[]},ratioRates:{lv:1,ok:0,no:0,h:[],sn:[]},probability:{lv:1,ok:0,no:0,h:[],sn:[]},statistics:{lv:1,ok:0,no:0,h:[],sn:[]},transformations:{lv:1,ok:0,no:0,h:[],sn:[]}},
     science:{biology:{lv:1,ok:0,no:0,h:[],sn:[]},chemistry:{lv:1,ok:0,no:0,h:[],sn:[]},physics:{lv:1,ok:0,no:0,h:[],sn:[]},earthSpace:{lv:1,ok:0,no:0,h:[],sn:[]}},
-    done:[],wr:[],aiQ:{}};
+    done:[],wr:[],aiQ:{},comp:{logic:{lv:1,ok:0,no:0},number:{lv:1,ok:0,no:0},geometry:{lv:1,ok:0,no:0},combi:{lv:1,ok:0,no:0}}};
 }
 
 function defaultDB(){
@@ -803,6 +803,7 @@ function go(screen){
     case 'maths': renderMaths(SC); break;
     case 'ib7': renderIB7(SC); break;
     case 'science': renderScience(SC); break;
+    case 'comp': renderCompPrep(SC); break;
     case 'resources': renderResources(SC); break;
     case 'writing': openWritingCentre(); break;
     case 'settings': renderStudentSettings(SC); break;
@@ -895,6 +896,7 @@ function renderMaths(el){
   el.innerHTML=`
   <div class="cd">
     <h2>Maths</h2>
+    <div style="margin-bottom:12px"><button class="bt" onclick="go('comp')" style="background:#e67e22;color:#fff;padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:0.9em">Competition Prep</button></div>
     <div class="ds">Choose a topic to practise. Your level adjusts based on how you do.</div>
     <div class="sg">
       ${topicCard('maths','geometry','Geometry','Shapes, angles, area, and perimeter','var(--g)')}
@@ -2049,7 +2051,7 @@ async function generateAI(subj,topic){
   if(!hasAIKey()){alert('Please set your API key in Settings first. Go to the Settings tab at the bottom and add a Claude or Gemini API key.');go('settings');return;}
   let s=S[subj][topic];
   let lvNames={1:'beginner (Year 5-6)',2:'intermediate (Year 7-8)',3:'advanced (Year 8-9)',4:'expert (Year 9-10)',5:'master (Year 10-11)'};
-  let topicNames={punctuation:'punctuation rules',reading:'reading comprehension',writing:'creative writing',geometry:'geometry',problemSolving:'problem solving and word problems',number:'number skills and arithmetic',biology:'biology (cells, body systems, ecosystems, genetics)',chemistry:'chemistry (materials, reactions, atoms, periodic table)',physics:'physics (forces, energy, electricity, waves)',earthSpace:'earth and space science (solar system, rocks, weather, climate)',wholeNumbers:'whole numbers (Haese MYP7 Ch1: place value, expanded form, rounding, significant figures, exponent notation)',numberProperties:'number properties (Haese MYP7 Ch2: square numbers, cubic numbers, divisibility, factors, primes, HCF, LCM)',linesAngles:'lines and angles (Haese MYP7 Ch3: angle types, complementary, supplementary, parallel lines, transversals, alternate and corresponding angles)',numberStrategies:'number strategies and order of operations (Haese MYP7 Ch4: BEDMAS, mental strategies, estimation, problem solving)',posNegNumbers:'positive and negative numbers (Haese MYP7 Ch5: integers on number line, adding/subtracting negatives, multiplying/dividing negatives)',fractions:'fractions (Haese MYP7 Ch6: equivalent fractions, mixed numbers, operations with fractions, reciprocals)',decimals:'decimals (Haese MYP7 Ch7: decimal place value, rounding, operations, converting fractions to decimals)',algebra:'algebra (Haese MYP7 Ch8: expressions, substitution, collecting like terms, formulae, expanding brackets)',percentage:'percentages (Haese MYP7 Ch9: converting percentages, finding percentages, percentage increase/decrease, discount)',equations:'equations (Haese MYP7 Ch10: solving by inspection, inverse operations, flowcharts, word problems)',polygons:'polygons (Haese MYP7 Ch11: triangles, angle sum, exterior angles, isosceles triangles, quadrilaterals)',measurementArea:'measurement length and area (Haese MYP7 Ch12: perimeter, area of rectangles, triangles, parallelograms, trapeziums, circles)',solids:'solids (Haese MYP7 Ch13: 3D shapes, faces edges vertices, nets, views and projections)',volumeMass:'volume capacity and mass (Haese MYP7 Ch14: volume of prisms and cylinders, capacity, mass, unit conversions)',coordGeometry:'coordinate geometry (Haese MYP7 Ch15: plotting points, quadrants, midpoint, equation of a line)',ratioRates:'ratio and rates (Haese MYP7 Ch16: simplifying ratios, sharing in ratio, rates, unit cost, speed)',probability:'probability (Haese MYP7 Ch17: describing probability, sample space, theoretical and experimental probability)',statistics:'statistics (Haese MYP7 Ch18: data collection, categorical/numerical data, stem-and-leaf, mean, median, mode, range)',transformations:'transformations (Haese MYP7 Ch19: translations, reflections, rotations, enlargements, symmetry)'};
+  let topicNames={punctuation:'punctuation rules',reading:'reading comprehension',writing:'creative writing',geometry:'geometry',problemSolving:'problem solving and word problems',number:'number skills and arithmetic',biology:'biology (cells, body systems, ecosystems, genetics)',chemistry:'chemistry (materials, reactions, atoms, periodic table)',physics:'physics (forces, energy, electricity, waves)',earthSpace:'earth and space science (solar system, rocks, weather, climate)',wholeNumbers:'whole numbers (Haese MYP7 Ch1: place value, expanded form, rounding, significant figures, exponent notation)',numberProperties:'number properties (Haese MYP7 Ch2: square numbers, cubic numbers, divisibility, factors, primes, HCF, LCM)',linesAngles:'lines and angles (Haese MYP7 Ch3: angle types, complementary, supplementary, parallel lines, transversals, alternate and corresponding angles)',numberStrategies:'number strategies and order of operations (Haese MYP7 Ch4: BEDMAS, mental strategies, estimation, problem solving)',posNegNumbers:'positive and negative numbers (Haese MYP7 Ch5: integers on number line, adding/subtracting negatives, multiplying/dividing negatives)',fractions:'fractions (Haese MYP7 Ch6: equivalent fractions, mixed numbers, operations with fractions, reciprocals)',decimals:'decimals (Haese MYP7 Ch7: decimal place value, rounding, operations, converting fractions to decimals)',algebra:'algebra (Haese MYP7 Ch8: expressions, substitution, collecting like terms, formulae, expanding brackets)',percentage:'percentages (Haese MYP7 Ch9: converting percentages, finding percentages, percentage increase/decrease, discount)',equations:'equations (Haese MYP7 Ch10: solving by inspection, inverse operations, flowcharts, word problems)',polygons:'polygons (Haese MYP7 Ch11: triangles, angle sum, exterior angles, isosceles triangles, quadrilaterals)',measurementArea:'measurement length and area (Haese MYP7 Ch12: perimeter, area of rectangles, triangles, parallelograms, trapeziums, circles)',solids:'solids (Haese MYP7 Ch13: 3D shapes, faces edges vertices, nets, views and projections)',volumeMass:'volume capacity and mass (Haese MYP7 Ch14: volume of prisms and cylinders, capacity, mass, unit conversions)',coordGeometry:'coordinate geometry (Haese MYP7 Ch15: plotting points, quadrants, midpoint, equation of a line)',ratioRates:'ratio and rates (Haese MYP7 Ch16: simplifying ratios, sharing in ratio, rates, unit cost, speed)',probability:'probability (Haese MYP7 Ch17: describing probability, sample space, theoretical and experimental probability)',statistics:'statistics (Haese MYP7 Ch18: data collection, categorical/numerical data, stem-and-leaf, mean, median, mode, range)',transformations:'transformations (Haese MYP7 Ch19: translations, reflections, rotations, enlargements, symmetry)',logic:'logical thinking and pattern recognition (competition style: sequences, deduction puzzles, lateral thinking)',combi:'combinatorics and counting (competition style: arrangements, permutations, combinations, probability, path counting)'};
   let prompt=`Generate 3 multiple-choice questions for a ${lvNames[s.lv]} student about ${topicNames[topic]}. The student prefers clear, explicit instructions without figurative language.
 Return ONLY a JSON array. Each question: {"inst":"instruction","txt":"question text","opts":["A","B","C"],"cor":0,"exp":"explanation"}
 "cor" is the 0-based index of the correct answer. Keep language clear and direct.`;
@@ -2691,6 +2693,97 @@ function exportData(){
   a.download='learning-portal-backup-'+new Date().toISOString().slice(0,10)+'.json';
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// === COMPETITION PREP QUESTION BANKS ===
+const COMP_LOGIC=[
+{id:'cl1',inst:'Find the pattern.',txt:'What comes next? 2, 6, 12, 20, 30, ?',opts:['40','42','44'],cor:1,exp:'Differences: 4,6,8,10,12. Each increases by 2. Next: 30+12=42.'},
+{id:'cl2',inst:'Solve this logic puzzle.',txt:'Ali is taller than Ben. Ben is taller than Chris. Dave is taller than Ali. Who is the shortest?',opts:['Ben','Chris','Ali'],cor:1,exp:'Order: Dave > Ali > Ben > Chris. Chris is shortest.'},
+{id:'cl3',inst:'Find the pattern.',txt:'1, 1, 2, 3, 5, 8, 13, ?',opts:['18','20','21'],cor:2,exp:'Fibonacci: each = sum of previous two. 8+13=21.'},
+{id:'cl4',inst:'Think carefully.',txt:'A farmer has 17 sheep. All but 9 run away. How many are left?',opts:['8','9','17'],cor:1,exp:'"All but 9" means 9 remain.'},
+{id:'cl5',inst:'Solve.',txt:'In a race, you overtake the person in 2nd place. What position are you now?',opts:['1st','2nd','3rd'],cor:1,exp:'You take their position: 2nd place.'},
+{id:'cl6',inst:'Find the missing number.',txt:'1, 4, 9, 16, 25, ?',opts:['30','36','49'],cor:1,exp:'Square numbers: 1²,2²,3²,4²,5²,6²=36.'},
+{id:'cl7',inst:'Think carefully.',txt:'A clock shows 3:15. What is the angle between the hour and minute hand?',opts:['0°','7.5°','90°'],cor:1,exp:'Minute hand at 3 (90°). Hour hand moved 1/4 from 3→4 = 7.5° past the 3. Angle = 7.5°.'},
+{id:'cl8',inst:'Solve.',txt:'If you write all numbers from 1 to 100, how many times do you write the digit 5?',opts:['10','11','20'],cor:2,exp:'Units place: 5,15,25,35,45,55,65,75,85,95 = 10 times. Tens place: 50,51,52,53,54,55,56,57,58,59 = 10 times. Total = 20.'}
+];
+const COMP_NUMBER=[
+{id:'cn1',inst:'Solve.',txt:'What is the sum of all whole numbers from 1 to 20?',opts:['200','210','190'],cor:1,exp:'Formula: n(n+1)/2 = 20×21/2 = 210.'},
+{id:'cn2',inst:'Find the answer.',txt:'How many factors does 36 have?',opts:['7','8','9'],cor:2,exp:'Factors: 1,2,3,4,6,9,12,18,36 = 9 factors.'},
+{id:'cn3',inst:'Solve.',txt:'What is the remainder when 2026 is divided by 7?',opts:['3','4','5'],cor:0,exp:'2026÷7=289 r3. Check: 289×7=2023, 2026-2023=3.'},
+{id:'cn4',inst:'Find the answer.',txt:'The product of two consecutive even numbers is 168. What are they?',opts:['10 and 12','12 and 14','14 and 16'],cor:1,exp:'12×14=168. Check: 10×12=120 (too small), 14×16=224 (too big).'},
+{id:'cn5',inst:'Solve.',txt:'What is the smallest number divisible by both 12 and 18?',opts:['36','72','216'],cor:0,exp:'LCM: 12=2²×3, 18=2×3². LCM=2²×3²=36.'},
+{id:'cn6',inst:'Find the answer.',txt:'What is the HCF of 48 and 72?',opts:['12','24','36'],cor:1,exp:'48=2⁴×3, 72=2³×3². HCF=2³×3=24.'},
+{id:'cn7',inst:'Solve carefully.',txt:'A number leaves remainder 3 when divided by 5 and remainder 2 when divided by 3. What is the smallest such number?',opts:['8','13','23'],cor:0,exp:'Numbers with r3÷5: 3,8,13,18... Check ÷3: 8÷3=2r2 ✓. Answer: 8.'},
+{id:'cn8',inst:'Think.',txt:'What is the sum of all prime numbers less than 20?',opts:['58','77','100'],cor:1,exp:'Primes < 20: 2,3,5,7,11,13,17,19. Sum=2+3+5+7+11+13+17+19=77.'}
+];
+const COMP_GEOMETRY=[
+{id:'cg1',inst:'Solve.',txt:'A square has perimeter 48 cm. What is its area?',opts:['96 cm²','144 cm²','192 cm²'],cor:1,exp:'Side=48÷4=12cm. Area=12×12=144 cm².'},
+{id:'cg2',inst:'Find the answer.',txt:'The angles of a triangle are in ratio 1:2:3. What is the largest angle?',opts:['60°','90°','120°'],cor:1,exp:'Sum=180°. Parts=6. Each part=30°. Largest=3×30°=90°.'},
+{id:'cg3',inst:'Solve.',txt:'A rectangle is 15cm long and 8cm wide. What is its diagonal?',opts:['17 cm','19 cm','23 cm'],cor:0,exp:'Pythagoras: d²=15²+8²=225+64=289. d=√289=17cm.'},
+{id:'cg4',inst:'Count carefully.',txt:'How many lines of symmetry does a regular hexagon have?',opts:['3','6','12'],cor:1,exp:'A regular hexagon has 6 lines of symmetry.'},
+{id:'cg5',inst:'Find the area.',txt:'A circle has radius 7cm. What is its area? (π≈22/7)',opts:['154 cm²','44 cm²','308 cm²'],cor:0,exp:'Area=πr²=(22/7)×49=154 cm².'},
+{id:'cg6',inst:'Count carefully.',txt:'How many squares of any size on a 3×3 grid?',opts:['9','13','14'],cor:2,exp:'1×1:9, 2×2:4, 3×3:1. Total=14.'},
+{id:'cg7',inst:'Solve.',txt:'Two supplementary angles differ by 35°. What is the larger angle?',opts:['72.5°','107.5°','145°'],cor:1,exp:'x+(x+35)=180. 2x=145. x=72.5°. Larger=107.5°.'},
+{id:'cg8',inst:'Find the answer.',txt:'What is the area of a triangle with base 12cm and height 9cm?',opts:['54 cm²','108 cm²','42 cm²'],cor:0,exp:'Area=½×base×height=½×12×9=54 cm².'}
+];
+const COMP_COMBI=[
+{id:'cc1',inst:'Solve.',txt:'How many 3-digit numbers using digits 1,2,3 without repeating?',opts:['3','6','9'],cor:1,exp:'3×2×1=6 arrangements.'},
+{id:'cc2',inst:'Think.',txt:'In how many ways can 4 people sit in a row of 4 chairs?',opts:['12','16','24'],cor:2,exp:'4!=4×3×2×1=24.'},
+{id:'cc3',inst:'Solve.',txt:'3 shirts and 2 pants. How many different outfits?',opts:['5','6','8'],cor:1,exp:'3×2=6 outfits.'},
+{id:'cc4',inst:'Count.',txt:'5 people shake hands with each other once. How many handshakes?',opts:['8','10','20'],cor:1,exp:'5×4/2=10 handshakes.'},
+{id:'cc5',inst:'Think.',txt:'A pizza has 4 optional toppings. How many combinations (including none)?',opts:['8','16','24'],cor:1,exp:'Each topping: on or off. 2⁴=16.'},
+{id:'cc6',inst:'Solve.',txt:'A coin is tossed 3 times. How many possible outcomes?',opts:['3','6','8'],cor:2,exp:'2³=8 outcomes.'},
+{id:'cc7',inst:'Count the paths.',txt:'On a 2×2 grid, how many shortest paths from bottom-left to top-right (right or up only)?',opts:['4','6','8'],cor:1,exp:'Need 2 rights + 2 ups. Arrangements of RRUU=4!/(2!×2!)=6.'},
+{id:'cc8',inst:'Solve.',txt:'How many ways to choose 2 students from a group of 5?',opts:['8','10','20'],cor:1,exp:'5C2=5!/(2!×3!)=10.'}
+];
+
+// === COMPETITION PREP FUNCTIONS ===
+function renderCompPrep(el){
+  if(!S.comp){S.comp={logic:{lv:1,ok:0,no:0},number:{lv:1,ok:0,no:0},geometry:{lv:1,ok:0,no:0},combi:{lv:1,ok:0,no:0}};sv();}
+  el.innerHTML=`
+  <div class="cd">
+    <h2 style="color:#e67e22">Competition Prep</h2>
+    <div class="ds">Practice for MathConceptition, HKIMO, and SASMO. These problems test problem-solving beyond the school curriculum.</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0">
+      <a href="https://mathconceptition.com/en/past-contests/" target="_blank" style="font-size:12px;padding:4px 10px;background:#e67e2222;color:#e67e22;border-radius:8px;text-decoration:none">MathConceptition Papers</a>
+      <a href="https://www.slmathsolympiad.org/hkimo-past-papers/" target="_blank" style="font-size:12px;padding:4px 10px;background:#e67e2222;color:#e67e22;border-radius:8px;text-decoration:none">HKIMO Papers</a>
+      <a href="https://www.internationalolympiadacademy.com/pdfs/Grade-6-SASMO.pdf" target="_blank" style="font-size:12px;padding:4px 10px;background:#e67e2222;color:#e67e22;border-radius:8px;text-decoration:none">SASMO Sample</a>
+    </div>
+    <div class="sg">
+      ${compCard('logic','Logical Thinking','Patterns, sequences, puzzles, deduction','#e67e22')}
+      ${compCard('number','Number Theory','Factors, primes, divisibility, remainders','#2ecc71')}
+      ${compCard('geometry','Geometry & Spatial','Angles, areas, counting shapes, symmetry','#3498db')}
+      ${compCard('combi','Combinatorics','Counting, arrangements, probability','#9b59b6')}
+    </div>
+  </div>`;
+}
+function compCard(topic,title,desc,color){
+  var s=S.comp[topic]||{lv:1,ok:0,no:0};
+  var pct=s.ok+s.no>0?Math.round(s.ok/(s.ok+s.no)*100):0;
+  return `<div style="background:var(--card);border-radius:12px;padding:14px;border-left:4px solid ${color}">
+    <h3 style="margin:0 0 4px;color:${color};font-size:0.95em">${title}</h3>
+    <p style="margin:0 0 6px;font-size:0.8em;color:var(--muted)">${desc}</p>
+    <div style="display:flex;gap:6px;font-size:0.75em;margin-bottom:6px">
+      <span style="background:${color}22;color:${color};padding:2px 6px;border-radius:8px">Lv ${s.lv}</span>
+      <span style="background:#4CAF5022;color:#4CAF50;padding:2px 6px;border-radius:8px">${pct}%</span>
+    </div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap">
+      <button class="bt" onclick="event.stopPropagation();startCompQuiz('${topic}')" style="padding:4px 10px;border:none;border-radius:6px;background:${color};color:#fff;cursor:pointer;font-size:0.8em">Practice</button>
+      <button class="bt" onclick="event.stopPropagation();generateAI('comp','${topic}')" style="padding:4px 10px;border:none;border-radius:6px;background:${color}cc;color:#fff;cursor:pointer;font-size:0.8em">AI Quiz</button>
+    </div>
+  </div>`;
+}
+function startCompQuiz(topic){
+  var banks={logic:COMP_LOGIC,number:COMP_NUMBER,geometry:COMP_GEOMETRY,combi:COMP_COMBI};
+  var qs=banks[topic];
+  if(!qs||qs.length===0){alert('No questions available.');return;}
+  if(!S.comp)S.comp={logic:{lv:1,ok:0,no:0},number:{lv:1,ok:0,no:0},geometry:{lv:1,ok:0,no:0},combi:{lv:1,ok:0,no:0}};
+  if(!S.comp[topic])S.comp[topic]={lv:1,ok:0,no:0};
+  var pool=qs.slice();
+  for(var i=pool.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=pool[i];pool[i]=pool[j];pool[j]=t;}
+  pool=pool.slice(0,5);
+  CQ={active:true,subject:'comp',topic:topic,questions:pool,idx:0,score:0,answers:[],mode:'mc'};
+  renderQuizQuestion();
 }
 
 // === INITIALIZE APP ===
