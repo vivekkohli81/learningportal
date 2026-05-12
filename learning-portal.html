@@ -1671,11 +1671,23 @@ function startQuiz(subj,topic){
   let unseen=bank.filter(q=>!s.sn.includes(q.id));
   let seen=bank.filter(q=>s.sn.includes(q.id));
   let pool=[...unseen,...seen];
-  // Pick 5 questions
-  let qs=pool.slice(0,Math.min(5,pool.length));
+  // Pick 4 MC questions
+  let qs=pool.slice(0,Math.min(4,pool.length));
   if(qs.length===0){
     if(hasAIKey()){generateAI(subj,topic);return;}
     alert('No built-in questions for Level '+s.lv+'. Set up an AI key to unlock unlimited questions at higher levels.');return;
+  }
+  // Mix in 1 open-answer question if available
+  let openBank=OPEN_Q[subj+'_'+topic];
+  if(openBank){
+    let openPool=openBank.filter(q=>!s.sn.includes(q.id));
+    if(openPool.length===0) openPool=openBank.slice();
+    if(openPool.length>0){
+      let openQ=openPool[Math.floor(Math.random()*openPool.length)];
+      // Insert open question at position 3 or end
+      let pos=Math.min(3,qs.length);
+      qs.splice(pos,0,openQ);
+    }
   }
   CQ={active:true,subject:subj,topic:topic,questions:qs,idx:0,score:0,answers:[],mode:'mc'};
   renderQuizQuestion();
@@ -1687,25 +1699,166 @@ function renderQuizQuestion(){
   let q=CQ.questions[CQ.idx];
   let isGeo=CQ.subject==='maths'&&CQ.topic==='geometry';
   let isSci=CQ.subject==='science';
+  let isOpen=q.open===true;
   SC.innerHTML=`
   <div class="cd">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <div class="qn">Question ${CQ.idx+1} of ${CQ.questions.length}</div>
+      <div class="qn">Question ${CQ.idx+1} of ${CQ.questions.length}${isOpen?' — Open Answer':''}</div>
       <div style="font-size:13px;color:var(--t2)">Score: ${CQ.score}/${CQ.idx}</div>
     </div>
     <div class="pb"><div class="pf" style="width:${(CQ.idx/CQ.questions.length)*100}%"></div></div>
   </div>
-  <div class="qb">
-    <div class="qn">${q.inst}</div>
+  <div class="qb"${isOpen?' style="border-left:4px solid var(--g)"':''}>
+    <div class="qn">${q.inst}${isOpen?' <span style="background:var(--gl);color:#065f46;padding:2px 8px;border-radius:10px;font-size:10px;margin-left:6px">SHOW YOUR WORKING</span>':''}</div>
     ${isGeo&&q.shape?drawShape(q.shape):''}${isSci&&q.shape?'<div id="sciDiag_'+CQ.idx+'" style="max-width:320px;margin:10px auto"></div>':''}
     <div class="qt">${q.txt}</div>
+    ${isOpen?`
+    <div style="margin-bottom:12px">
+      <label style="font-size:13px;font-weight:600;color:var(--t2);display:block;margin-bottom:6px">Your answer and working:</label>
+      <textarea id="openAnswer" class="wr" style="min-height:120px" placeholder="Type your answer here. Show your working step by step..."></textarea>
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="font-size:13px;font-weight:600;color:var(--t2);margin-bottom:6px">Or upload a photo of your handwritten work:</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;padding:10px 16px;border:2px dashed var(--v);border-radius:var(--r);color:var(--v);font-size:13px;font-weight:500;cursor:pointer;flex:1;justify-content:center">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Upload Photo
+          <input type="file" accept="image/*" id="openImage" onchange="previewUploadedImage()" style="display:none">
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;padding:10px 16px;border:2px dashed #06b6d4;border-radius:var(--r);color:#06b6d4;font-size:13px;font-weight:500;cursor:pointer;flex:1;justify-content:center">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          Take Photo
+          <input type="file" accept="image/*" capture="environment" id="openCamera" onchange="previewCameraImage()" style="display:none">
+        </label>
+      </div>
+      <div id="imagePreview" style="margin-top:10px"></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="bt bp" onclick="submitOpenAnswer()" style="flex:1">Submit Answer</button>
+    </div>
+    `:`
     <div id="opts">
       ${q.opts.map((o,i)=>`<button class="ob" onclick="selectOption(${i})">${o}</button>`).join('')}
-    </div>
+    </div>`}
     <div id="fb"></div>
     <div id="nx" style="margin-top:12px"></div>
   </div>`;
   if(isSci&&q.shape){setTimeout(function(){drawScienceShape('sciDiag_'+CQ.idx,q.shape);},50);}
+}
+
+// Image upload handling for open-answer questions
+var _uploadedImageData=null;
+
+function previewUploadedImage(){
+  var input=document.getElementById('openImage');
+  handleImageFile(input);
+}
+function previewCameraImage(){
+  var input=document.getElementById('openCamera');
+  handleImageFile(input);
+}
+function handleImageFile(input){
+  if(!input||!input.files||!input.files[0])return;
+  var file=input.files[0];
+  if(file.size>10*1024*1024){alert('Image is too large (max 10MB). Please use a smaller image.');return;}
+  var reader=new FileReader();
+  reader.onload=function(e){
+    _uploadedImageData=e.target.result;
+    var preview=document.getElementById('imagePreview');
+    if(preview){
+      preview.innerHTML='<div style="position:relative;display:inline-block"><img src="'+_uploadedImageData+'" style="max-width:300px;max-height:200px;border-radius:var(--r);border:2px solid var(--g)"><button onclick="removeUploadedImage()" style="position:absolute;top:-8px;right:-8px;width:24px;height:24px;border-radius:50%;border:none;background:var(--e);color:#fff;cursor:pointer;font-size:14px;font-weight:700">✕</button></div><div style="font-size:12px;color:var(--g);margin-top:4px">Photo attached — will be checked by AI</div>';
+    }
+  };
+  reader.readAsDataURL(file);
+}
+function removeUploadedImage(){
+  _uploadedImageData=null;
+  var preview=document.getElementById('imagePreview');
+  if(preview) preview.innerHTML='';
+  var f1=document.getElementById('openImage');if(f1)f1.value='';
+  var f2=document.getElementById('openCamera');if(f2)f2.value='';
+}
+
+// Submit open-answer question for AI checking
+async function submitOpenAnswer(){
+  var q=CQ.questions[CQ.idx];
+  var textAnswer=(document.getElementById('openAnswer')||{}).value||'';
+  var hasImage=!!_uploadedImageData;
+
+  if(!textAnswer.trim()&&!hasImage){
+    alert('Please type your answer or upload a photo of your work.');return;
+  }
+
+  var fb=document.getElementById('fb');
+  var nx=document.getElementById('nx');
+  fb.innerHTML='<div style="padding:16px;background:var(--pl);border-radius:var(--r);text-align:center"><div style="font-size:14px;font-weight:600;color:var(--p)">Checking your answer...</div><div style="font-size:12px;color:var(--t2);margin-top:4px">AI is reviewing your work</div></div>';
+
+  // Disable submit button
+  document.querySelectorAll('.bt.bp').forEach(function(b){b.disabled=true;b.style.opacity='0.5';});
+
+  try{
+    var prompt='You are a maths teacher checking a Year 6 student\'s work.\n\nQuestion: '+q.txt+'\nCorrect answer: '+q.answer+'\n';
+    if(q.solution) prompt+='Model solution: '+q.solution+'\n';
+    prompt+='\nStudent\'s written answer:\n'+textAnswer+'\n';
+    if(hasImage) prompt+='\n[The student has also uploaded a photo of their handwritten working.]\n';
+    prompt+='\nPlease respond in this exact JSON format:\n{"correct":true/false,"marks_given":X,"out_of":'+((q.marks||3))+',"feedback":"specific feedback on their work","working_feedback":"comments on their method/working shown","next_hint":"one tip to help them improve"}\n\nBe encouraging but honest. If they got the right answer but showed no working, give partial marks. If they showed good working but made a small error, acknowledge the good method.';
+
+    // If AI is available, use it; otherwise do a simple text match
+    if(hasAIKey()){
+      var response=await callAI(prompt,800);
+      var jsonMatch=response.match(/\{[\s\S]*\}/);
+      if(jsonMatch){
+        var result=JSON.parse(jsonMatch[0]);
+        var correct=result.correct;
+        var pct=Math.round((result.marks_given/result.out_of)*100);
+        if(correct||pct>=70) CQ.score++;
+        CQ.answers.push({q:q.id,correct:correct||pct>=70,mode:'open',hasImage:hasImage});
+
+        var s=S[CQ.subject][CQ.topic];
+        if(s&&!s.sn.includes(q.id))s.sn.push(q.id);
+
+        var scoreColor=pct>=80?'var(--g)':pct>=50?'var(--w)':'var(--e)';
+        fb.innerHTML='<div style="border:2px solid '+scoreColor+';border-radius:var(--r);overflow:hidden;margin-top:12px">'+
+          '<div style="background:'+scoreColor+';color:#fff;padding:10px 16px;display:flex;justify-content:space-between;align-items:center"><span style="font-weight:600">'+(correct?'Correct!':'Not quite right')+'</span><span>'+result.marks_given+'/'+result.out_of+' marks</span></div>'+
+          '<div style="padding:16px">'+
+          '<div style="margin-bottom:10px"><strong style="font-size:13px;color:var(--t2)">Feedback:</strong><div style="font-size:14px;margin-top:4px">'+result.feedback+'</div></div>'+
+          (result.working_feedback?'<div style="margin-bottom:10px"><strong style="font-size:13px;color:var(--t2)">Working:</strong><div style="font-size:14px;margin-top:4px">'+result.working_feedback+'</div></div>':'')+
+          (result.next_hint?'<div style="background:var(--wl);padding:10px;border-radius:var(--r);font-size:13px"><strong>Tip:</strong> '+result.next_hint+'</div>':'')+
+          (hasImage?'<div style="margin-top:8px;font-size:12px;color:var(--v)">📷 Photo was included with submission</div>':'')+
+          '</div></div>';
+      } else {
+        throw new Error('Could not parse AI response');
+      }
+    } else {
+      // Simple fallback: check if the answer contains the correct value
+      var correct=textAnswer.toLowerCase().includes(String(q.answer).toLowerCase());
+      if(correct) CQ.score++;
+      CQ.answers.push({q:q.id,correct:correct,mode:'open',hasImage:hasImage});
+      var s=S[CQ.subject][CQ.topic];
+      if(s&&!s.sn.includes(q.id))s.sn.push(q.id);
+      fb.innerHTML='<div class="fb '+(correct?'ok':'no')+'">'+(correct?'Correct! ':'The correct answer is: '+q.answer+'. ')+q.exp+'</div>';
+    }
+
+    var isLast=CQ.idx>=CQ.questions.length-1;
+    nx.innerHTML='<button class="bt bp" onclick="'+(isLast?'showQuizResults()':'nextOpenQuestion()')+'">'+(isLast?'See Results':'Next Question')+'</button>';
+
+  }catch(e){
+    fb.innerHTML='<div class="fb no">Error checking answer: '+e.message+'. The correct answer is: '+q.answer+'</div>';
+    var correct=false;
+    CQ.answers.push({q:q.id,correct:false,mode:'open',hasImage:hasImage});
+    var isLast=CQ.idx>=CQ.questions.length-1;
+    nx.innerHTML='<button class="bt bp" onclick="'+(isLast?'showQuizResults()':'nextOpenQuestion()')+'">'+(isLast?'See Results':'Next Question')+'</button>';
+  }
+
+  // Re-enable buttons
+  document.querySelectorAll('.bt.bp').forEach(function(b){b.disabled=false;b.style.opacity='1';});
+  _uploadedImageData=null;
+}
+
+function nextOpenQuestion(){
+  _uploadedImageData=null;
+  CQ.idx++;
+  renderQuizQuestion();
 }
 
 function selectOption(idx){
@@ -2863,6 +3016,48 @@ function renderCoding(el){
   html+='</div>';
   el.innerHTML=html;
 }
+
+// === OPEN-ANSWER QUESTION BANK ===
+// Questions where students type answers and/or upload photos — AI checks their work
+const OPEN_Q={
+  // MATHS
+  maths_geometry:[
+    {id:'og1',open:true,inst:'Solve and show your working.',txt:'A rectangle has a perimeter of 36 cm. If the length is 3 times the width, what is the area? Show all your steps.',answer:'60.75',solution:'Let width = w. Length = 3w. Perimeter = 2(w + 3w) = 8w = 36. So w = 4.5 cm. Length = 13.5 cm. Area = 4.5 × 13.5 = 60.75 cm².',exp:'Set up an equation using perimeter formula, solve for width, then find area.',marks:3},
+    {id:'og2',open:true,inst:'Calculate and show your working.',txt:'A triangle has angles of 47° and 68°. Find the third angle and explain what type of triangle this is.',answer:'65',solution:'Third angle = 180 - 47 - 68 = 65°. All angles are less than 90°, so it is an acute triangle.',exp:'Angles in a triangle add up to 180°.',marks:3},
+    {id:'og3',open:true,inst:'Solve this problem.',txt:'A circular garden has a radius of 5 metres. A path 1 metre wide runs around the outside. What is the area of just the path? (Use π = 3.14)',answer:'34.54',solution:'Outer circle radius = 6m. Outer area = π×36 = 113.04. Inner area = π×25 = 78.5. Path area = 113.04 - 78.5 = 34.54 m².',exp:'Subtract inner circle area from outer circle area.',marks:4}
+  ],
+  maths_problemSolving:[
+    {id:'ops1',open:true,inst:'Solve step by step.',txt:'A shop sells 3 notebooks for $12.60. How much would 7 notebooks cost? Show your working.',answer:'29.40',solution:'Price per notebook = 12.60 ÷ 3 = $4.20. Cost of 7 = 4.20 × 7 = $29.40.',exp:'Find the unit price first, then multiply.',marks:3},
+    {id:'ops2',open:true,inst:'Solve and explain your reasoning.',txt:'A tank is 2/5 full. After adding 24 litres, it becomes 4/5 full. What is the total capacity of the tank?',answer:'60',solution:'24 litres fills 4/5 - 2/5 = 2/5 of the tank. So 2/5 = 24 litres. 1/5 = 12 litres. Full tank = 60 litres.',exp:'Find the fraction that 24 litres represents, then find the whole.',marks:3},
+    {id:'ops3',open:true,inst:'Show all your working.',txt:'Train A leaves Station X at 09:15 travelling at 80 km/h. Train B leaves Station X at 09:45 travelling at 120 km/h in the same direction. At what time does Train B catch up with Train A?',answer:'10:45',solution:'At 09:45, Train A has travelled 0.5h × 80 = 40km. Relative speed = 120-80 = 40 km/h. Time to catch = 40÷40 = 1 hour. Catch-up time = 09:45 + 1h = 10:45.',exp:'Find the head start distance, then use relative speed.',marks:4}
+  ],
+  maths_number:[
+    {id:'on1',open:true,inst:'Calculate and show your working.',txt:'What is 3/4 + 2/5? Give your answer as a fraction in its simplest form.',answer:'23/20',solution:'3/4 + 2/5 = 15/20 + 8/20 = 23/20 or 1 3/20.',exp:'Find a common denominator (20), then add numerators.',marks:3},
+    {id:'on2',open:true,inst:'Solve step by step.',txt:'A price increases from $80 to $92. What is the percentage increase?',answer:'15',solution:'Increase = 92 - 80 = $12. Percentage = (12 ÷ 80) × 100 = 15%.',exp:'Find the difference, divide by original, multiply by 100.',marks:3},
+    {id:'on3',open:true,inst:'Show your method.',txt:'Find the highest common factor (HCF) and lowest common multiple (LCM) of 24 and 36.',answer:'HCF=12, LCM=72',solution:'24 = 2³×3. 36 = 2²×3². HCF = 2²×3 = 12. LCM = 2³×3² = 72.',exp:'Use prime factorisation to find HCF and LCM.',marks:4}
+  ],
+  // ENGLISH
+  english_punctuation:[
+    {id:'oep1',open:true,inst:'Rewrite with correct punctuation.',txt:'Rewrite this sentence with correct punctuation: the boys dog which was called max ran across mrs smiths garden',answer:'The boy\'s dog, which was called Max, ran across Mrs Smith\'s garden.',solution:'Capital T for start. boy\'s (possessive). Commas around "which was called Max" (extra info). Max and Mrs Smith capitalised. Mrs Smith\'s (possessive). Full stop at end.',exp:'Needs capitals, apostrophes for possession, and commas for extra information.',marks:4},
+    {id:'oep2',open:true,inst:'Add correct punctuation.',txt:'Write a sentence that uses a semicolon correctly. Then explain why a semicolon is needed instead of a full stop or comma.',answer:'semicolon',solution:'Example: I love reading; my brother prefers sports. A semicolon joins two closely related complete sentences.',exp:'A semicolon connects two independent clauses that are closely related.',marks:3}
+  ],
+  english_reading:[
+    {id:'oer1',open:true,inst:'Write your answer in full sentences.',txt:'Read this extract: "The old house stood silent at the end of the lane, its windows dark like sleeping eyes." What two things does the author compare? What feeling does this create? Write 2-3 sentences.',answer:'windows and eyes',solution:'The author compares the windows to sleeping eyes (simile). This creates a feeling of quietness, mystery, or eeriness. The house seems almost alive but asleep.',exp:'Identify the simile and explain the mood/atmosphere it creates.',marks:3}
+  ],
+  // SCIENCE
+  science_biology:[
+    {id:'osb1',open:true,inst:'Explain in your own words.',txt:'Explain why plants are green. What is the name of the substance that makes them green, and what job does it do?',answer:'chlorophyll',solution:'Plants are green because they contain chlorophyll. Chlorophyll is found in chloroplasts and absorbs sunlight to power photosynthesis — the process of making food (glucose) from carbon dioxide and water.',exp:'Chlorophyll absorbs light for photosynthesis.',marks:3}
+  ],
+  science_physics:[
+    {id:'osp1',open:true,inst:'Explain and calculate.',txt:'A car travels 150 km in 2.5 hours. Calculate its average speed and explain the difference between speed and velocity.',answer:'60',solution:'Speed = distance ÷ time = 150 ÷ 2.5 = 60 km/h. Speed is how fast something moves (scalar). Velocity also includes direction (vector).',exp:'Speed = distance/time. Velocity includes direction.',marks:3}
+  ],
+  science_chemistry:[
+    {id:'osc1',open:true,inst:'Explain in your own words.',txt:'What happens to the particles in a solid when it is heated and turns into a liquid? Draw or describe what the particles look like in each state.',answer:'particles move more',solution:'In a solid, particles are tightly packed in fixed positions, vibrating slightly. When heated, they gain energy and vibrate more. At melting point, they break free of fixed positions and can slide over each other — this is a liquid.',exp:'Heating gives particles more energy to move.',marks:3}
+  ],
+  science_earthSpace:[
+    {id:'ose1',open:true,inst:'Explain with a diagram or description.',txt:'Explain why we have day and night on Earth. Include the words "rotation" and "axis" in your answer.',answer:'rotation',solution:'Earth rotates on its axis once every 24 hours. The side facing the Sun has daytime. As Earth rotates, that side turns away from the Sun and experiences night. The axis is tilted at 23.5°.',exp:'Day and night are caused by Earth\'s rotation on its axis.',marks:3}
+  ]
+};
 
 // === COMPETITION PREP QUESTION BANKS ===
 const COMP_LOGIC=[
