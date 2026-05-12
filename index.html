@@ -1747,6 +1747,7 @@ function showQuizResults(){
   S.total++;
   S.done.push({date:new Date().toDateString(),subject:CQ.subject,topic:CQ.topic,score:CQ.score+'/'+CQ.questions.length});
   markActive();sv();
+  syncPerformanceToServer();
   let SC=document.getElementById('SC');
   SC.innerHTML=`
   <div class="cd" style="text-align:center">
@@ -1839,7 +1840,7 @@ function finishReading(){
   else if(pct<40&&s.lv>1){s.lv--;lvMsg='Let us practise more at Level '+s.lv+'.';}
   else{lvMsg='You are staying at Level '+s.lv+'. Keep going!';}
   S.total++;S.done.push({date:new Date().toDateString(),subject:'english',topic:'reading',score:CQ.score+'/'+CQ.questions.length});
-  markActive();sv();
+  markActive();sv();syncPerformanceToServer();
   let SC=document.getElementById('SC');
   SC.innerHTML=`
   <div class="cd" style="text-align:center">
@@ -1969,7 +1970,7 @@ function submitWritingBasic(){
   S.total++;S.done.push({date:new Date().toDateString(),subject:'english',topic:'writing',score:score+'/100'});
   S.wr.push({date:new Date().toDateString(),title:p.title,type:CQ.writingType,text:text,score:score,feedback:feedback,mode:'basic'});
   if(score>=80&&s.lv<5)s.lv++;else if(score<40&&s.lv>1)s.lv--;
-  markActive();sv();
+  markActive();sv();syncPerformanceToServer();
   let fbHtml=feedback.map(function(f){return '<div class="fb '+(f.ok?'ok':'no')+'" style="margin-bottom:8px">'+(f.ok?'\u2713':'\u2717')+' '+f.msg+'</div>';}).join('');
   let scoreColor=score>=75?'var(--g)':score>=50?'var(--w)':'var(--e)';
   let SC=document.getElementById('SC');
@@ -1998,7 +1999,7 @@ async function submitWritingToAI(){
     S.total++;S.done.push({date:new Date().toDateString(),subject:'english',topic:'writing',score:sc+'/100'});
     S.wr.push({date:new Date().toDateString(),title:p.title,type:CQ.writingType,text:text,score:sc,aiFeedback:fb,mode:'ai'});
     if(sc>=80&&s.lv<5)s.lv++;else if(sc<40&&s.lv>1)s.lv--;
-    markActive();sv();
+    markActive();sv();syncPerformanceToServer();
     renderAIFeedback(text,fb,CQ.writingType);
   }catch(e){
     SC.innerHTML='<div class="cd"><h2>Could not get AI feedback</h2><div class="ds" style="color:var(--e)">'+e.message+'</div><div style="margin-top:16px"><button class="bt bp" onclick="renderWritingScreen()">Try Again</button><button class="bt" style="background:var(--b);margin-left:8px" onclick="go(\'english\')">Back</button></div></div>';
@@ -2213,7 +2214,7 @@ async function submitSYW(){
     if(fb.correct){s.ok++;CQ.score=1;}else{s.no++;}
     S.total++;
     S.done.push({date:new Date().toDateString(),subject:CQ.subject,topic:CQ.topic,score:fb.marks_given+'/'+fb.out_of,mode:'syw'});
-    markActive();sv();
+    markActive();sv();syncPerformanceToServer();
     
     var pct=Math.round(fb.marks_given/fb.out_of*100);
     var color=pct>=80?'var(--g)':pct>=50?'var(--w)':'var(--e)';
@@ -2952,6 +2953,87 @@ function startCompQuiz(topic){
   pool=pool.slice(0,5);
   CQ={active:true,subject:'comp',topic:topic,questions:pool,idx:0,score:0,answers:[],mode:'mc'};
   renderQuizQuestion();
+}
+
+// =============================================
+// === SERVER PERFORMANCE SYNC =================
+// =============================================
+// Syncs student performance to the server so email agents can read it
+function syncPerformanceToServer(){
+  if(!isHosted()||!currentUser||currentUser.role!=='kid') return;
+  var kid=currentUser.kid;
+  var analysis=analyzePerformance(S);
+  if(!analysis) return;
+
+  // Build a compact performance summary for the server
+  var topicLevels={};
+  var topicAccuracy={};
+  ['english','maths','science','ib7'].forEach(function(subj){
+    if(!S[subj]) return;
+    Object.keys(S[subj]).forEach(function(topic){
+      var d=S[subj][topic];
+      if(!d) return;
+      var key=subj+'.'+topic;
+      topicLevels[key]=d.lv||1;
+      var total=(d.ok||0)+(d.no||0);
+      topicAccuracy[key]={ok:d.ok||0,no:d.no||0,accuracy:total>0?Math.round(d.ok/total*100):null,level:d.lv||1};
+    });
+  });
+
+  // Competition prep levels
+  if(S.comp){
+    Object.keys(S.comp).forEach(function(t){
+      topicLevels['comp.'+t]=S.comp[t].lv||1;
+      var total=(S.comp[t].ok||0)+(S.comp[t].no||0);
+      topicAccuracy['comp.'+t]={ok:S.comp[t].ok||0,no:S.comp[t].no||0,accuracy:total>0?Math.round(S.comp[t].ok/total*100):null,level:S.comp[t].lv||1};
+    });
+  }
+
+  // Recent quiz history (last 10)
+  var recentQuizzes=[];
+  ['english','maths','science','ib7'].forEach(function(subj){
+    if(!S[subj]) return;
+    Object.keys(S[subj]).forEach(function(topic){
+      var d=S[subj][topic];
+      if(d&&d.h){
+        d.h.forEach(function(h){
+          recentQuizzes.push({date:h.date,subject:subj,topic:topic,score:h.score,total:h.total,pct:h.pct});
+        });
+      }
+    });
+  });
+  recentQuizzes.sort(function(a,b){return new Date(b.date)-new Date(a.date);});
+
+  var payload={
+    username:kid.username,
+    name:kid.name,
+    year:kid.year||6,
+    overallAccuracy:analysis.overallAccuracy,
+    totalCompleted:analysis.totalCompleted,
+    streak:analysis.streak,
+    daysActive7:analysis.daysActive7,
+    daysActive30:analysis.daysActive30,
+    topicLevels:topicLevels,
+    topicAccuracy:topicAccuracy,
+    weakAreas:analysis.weakAreas.map(function(w){return {subject:w.subject,topic:w.topic,accuracy:w.accuracy,level:w.level};}),
+    strongAreas:analysis.strongAreas.map(function(s){return {subject:s.subject,topic:s.topic,accuracy:s.accuracy,level:s.level};}),
+    recentQuizzes:recentQuizzes.slice(0,10),
+    trend:analysis.trend,
+    last5Avg:analysis.last5Avg,
+    writings:analysis.writings,
+    lastSyncDate:new Date().toISOString()
+  };
+
+  // Send to server (fire and forget — don't block the UI)
+  fetch('/api/performance',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)
+  }).then(function(r){
+    if(r.ok) console.log('Performance synced to server');
+  }).catch(function(e){
+    console.log('Performance sync failed (non-critical):',e.message);
+  });
 }
 
 // =============================================
