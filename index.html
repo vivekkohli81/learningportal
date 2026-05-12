@@ -871,6 +871,8 @@ function renderHome(el){
       S.done.slice(-10).reverse().map(d=>`<tr><td>${d.date||'-'}</td><td>${d.subject}</td><td>${d.topic}</td><td>${d.score}</td></tr>`).join('')+
       '</table>'}
   </div>`;
+  // Add adaptive recommendations section
+  renderAdaptiveHome(el);
 }
 
 // === ENGLISH SCREEN ===
@@ -2514,13 +2516,27 @@ function renderAdminProgress(el){
     return;
   }
 
-  // Kid selector
+  // Kid selector + view mode
   let kidPicker='<div class="form-group"><label>Select Student</label><select class="api" id="progressKid" onchange="renderKidProgress()" style="padding:10px">';
   kidPicker+='<option value="all">All Students - Overview</option>';
   DB.kids.forEach(function(k,i){kidPicker+='<option value="'+i+'">'+k.name+'</option>';});
   kidPicker+='</select></div>';
 
-  el.innerHTML='<div class="cd"><h3>Progress Tracking</h3><div class="ds">View detailed progress for each student.</div>'+kidPicker+'</div><div id="progressDetail"></div>';
+  let viewToggle='<div style="display:flex;gap:8px;margin-top:12px"><button class="bt bp" id="viewAdaptive" onclick="switchProgressView(\'adaptive\')" style="font-size:13px;padding:6px 16px">Adaptive Dashboard</button><button class="bt" id="viewClassic" onclick="switchProgressView(\'classic\')" style="font-size:13px;padding:6px 16px;background:var(--b);color:var(--t)">Classic View</button></div>';
+
+  el.innerHTML='<div class="cd"><h3>Progress Tracking</h3><div class="ds">View detailed progress and adaptive analytics for each student.</div>'+kidPicker+viewToggle+'</div><div id="progressDetail"></div>';
+  window._progressView='adaptive';
+  renderKidProgress();
+}
+
+function switchProgressView(view){
+  window._progressView=view;
+  var ab=document.getElementById('viewAdaptive');
+  var cb=document.getElementById('viewClassic');
+  if(ab&&cb){
+    if(view==='adaptive'){ab.className='bt bp';ab.style.background='';ab.style.color='';cb.className='bt';cb.style.background='var(--b)';cb.style.color='var(--t)';}
+    else{cb.className='bt bp';cb.style.background='';cb.style.color='';ab.className='bt';ab.style.background='var(--b)';ab.style.color='var(--t)';}
+  }
   renderKidProgress();
 }
 
@@ -2551,6 +2567,13 @@ function renderKidProgress(){
   if(!k){detail.innerHTML='';return;}
   let p=k.progress;
 
+  // Check view mode
+  if(window._progressView==='adaptive'){
+    detail.innerHTML=renderAdaptiveParentDash(p,k.name);
+    return;
+  }
+
+  // Classic view
   let lvBadgeF=function(lv){let labels=['','Beginner','Intermediate','Advanced','Expert','Master'];let cls=['','b2','b3','b1','b3','b3'];return '<span class="badge '+(cls[lv]||'b2')+'">Level '+lv+' - '+(labels[lv]||'Unknown')+'</span>';};
   let pctBarF=function(ok,no){let t=ok+no;let pct=t>0?Math.round(ok/t*100):0;return '<div class="pb"><div class="pf" style="width:'+pct+'%"></div></div><div style="font-size:12px;color:var(--t2)">'+ok+' correct, '+no+' incorrect ('+pct+'%)</div>';};
 
@@ -2560,6 +2583,7 @@ function renderKidProgress(){
     html+='<div class="cd"><h3>'+subj.charAt(0).toUpperCase()+subj.slice(1)+'</h3>';
     for(let topic in subjects[subj]){
       let d=p[subj][topic];
+      if(!d) continue;
       html+='<div style="margin-bottom:16px"><strong>'+subjects[subj][topic]+'</strong> '+lvBadgeF(d.lv)+pctBarF(d.ok,d.no);
       if(d.h&&d.h.length>0){
         html+='<div style="margin-top:8px;font-size:13px"><strong>Recent:</strong> '+d.h.slice(-3).map(function(h){return h.date+': '+h.score+'/'+h.total;}).join(' | ')+'</div>';
@@ -2928,6 +2952,354 @@ function startCompQuiz(topic){
   pool=pool.slice(0,5);
   CQ={active:true,subject:'comp',topic:topic,questions:pool,idx:0,score:0,answers:[],mode:'mc'};
   renderQuizQuestion();
+}
+
+// =============================================
+// === ADAPTIVE INTELLIGENCE ENGINE ============
+// =============================================
+
+// Analyze a student's performance across all subjects
+function analyzePerformance(progress){
+  if(!progress) return null;
+  var subjects=['english','maths','science','ib7'];
+  var allTopics=[];
+  var totalOk=0, totalNo=0;
+  var recentSessions=[];
+  var weakAreas=[];
+  var strongAreas=[];
+  var topicAccuracy={};
+
+  subjects.forEach(function(subj){
+    if(!progress[subj]) return;
+    Object.keys(progress[subj]).forEach(function(topic){
+      var d=progress[subj][topic];
+      if(!d) return;
+      var ok=d.ok||0, no=d.no||0, total=ok+no;
+      var acc=total>0?Math.round(ok/total*100):null;
+      var key=subj+'_'+topic;
+      topicAccuracy[key]={subject:subj,topic:topic,ok:ok,no:no,accuracy:acc,level:d.lv||1,total:total};
+      totalOk+=ok; totalNo+=no;
+      if(total>=3){
+        allTopics.push(topicAccuracy[key]);
+        if(acc<50) weakAreas.push(topicAccuracy[key]);
+        else if(acc>=80) strongAreas.push(topicAccuracy[key]);
+      }
+      // Gather history
+      if(d.h){
+        d.h.forEach(function(h){
+          recentSessions.push({date:h.date,subject:subj,topic:topic,score:h.score,total:h.total,pct:h.pct});
+        });
+      }
+    });
+  });
+
+  // Sort weak areas by accuracy (worst first)
+  weakAreas.sort(function(a,b){return (a.accuracy||0)-(b.accuracy||0);});
+  strongAreas.sort(function(a,b){return (b.accuracy||0)-(a.accuracy||0);});
+
+  // Sort recent sessions by date (newest first)
+  recentSessions.sort(function(a,b){return new Date(b.date)-new Date(a.date);});
+
+  // Calculate trends (last 5 vs previous 5)
+  var last5=recentSessions.slice(0,5);
+  var prev5=recentSessions.slice(5,10);
+  var last5Avg=last5.length>0?Math.round(last5.reduce(function(s,r){return s+(r.pct||0);},0)/last5.length):null;
+  var prev5Avg=prev5.length>0?Math.round(prev5.reduce(function(s,r){return s+(r.pct||0);},0)/prev5.length):null;
+  var trend=last5Avg!==null&&prev5Avg!==null?last5Avg-prev5Avg:null;
+
+  // Activity heatmap (last 30 days)
+  var activityDays={};
+  var today=new Date();
+  recentSessions.forEach(function(s){
+    var key=s.date;
+    if(!activityDays[key]) activityDays[key]={count:0,totalPct:0};
+    activityDays[key].count++;
+    activityDays[key].totalPct+=(s.pct||0);
+  });
+
+  // Days active in last 7 and 30 days
+  var d7=0,d30=0;
+  for(var key in activityDays){
+    var diff=Math.floor((today-new Date(key))/(86400000));
+    if(diff<=7) d7++;
+    if(diff<=30) d30++;
+  }
+
+  // Overall accuracy
+  var overallAcc=totalOk+totalNo>0?Math.round(totalOk/(totalOk+totalNo)*100):0;
+
+  return {
+    overallAccuracy:overallAcc,
+    totalCorrect:totalOk,
+    totalIncorrect:totalNo,
+    totalAttempted:totalOk+totalNo,
+    weakAreas:weakAreas.slice(0,5),
+    strongAreas:strongAreas.slice(0,3),
+    allTopics:allTopics,
+    topicAccuracy:topicAccuracy,
+    recentSessions:recentSessions.slice(0,20),
+    trend:trend,
+    last5Avg:last5Avg,
+    prev5Avg:prev5Avg,
+    daysActive7:d7,
+    daysActive30:d30,
+    activityDays:activityDays,
+    streak:progress.streak||0,
+    totalCompleted:progress.total||0,
+    writings:progress.wr?progress.wr.length:0
+  };
+}
+
+// Get smart recommendations based on performance analysis
+function getRecommendations(analysis){
+  if(!analysis) return [];
+  var recs=[];
+  var topicNames={punctuation:'Punctuation',reading:'Reading',writing:'Writing',geometry:'Geometry',problemSolving:'Problem Solving',number:'Number',biology:'Biology',chemistry:'Chemistry',physics:'Physics',earthSpace:'Earth & Space',wholeNumbers:'Whole Numbers',numberProperties:'Number Properties',linesAngles:'Lines & Angles',numberStrategies:'Number Strategies',posNegNumbers:'Positive & Negative Numbers',fractions:'Fractions',decimals:'Decimals',algebra:'Algebra',percentage:'Percentage',equations:'Equations',polygons:'Polygons',measurementArea:'Measurement & Area',solids:'Solids',volumeMass:'Volume & Mass',coordGeometry:'Coordinate Geometry',ratioRates:'Ratio & Rates',probability:'Probability',statistics:'Statistics',transformations:'Transformations'};
+
+  // Weak area recommendations
+  if(analysis.weakAreas.length>0){
+    var w=analysis.weakAreas[0];
+    recs.push({type:'focus',icon:'🎯',title:'Focus Area: '+(topicNames[w.topic]||w.topic),desc:'Your accuracy is '+w.accuracy+'% in '+w.subject+' → '+(topicNames[w.topic]||w.topic)+'. Try 3 more practice sessions to improve.',action:"startQuiz('"+w.subject+"','"+w.topic+"')",btnText:'Practice Now'});
+  }
+
+  // Trend-based recommendations
+  if(analysis.trend!==null){
+    if(analysis.trend>10){
+      recs.push({type:'positive',icon:'📈',title:'Great Improvement!',desc:'Your recent scores are '+analysis.trend+'% higher than before. Keep going!',action:null,btnText:null});
+    } else if(analysis.trend<-10){
+      recs.push({type:'warning',icon:'📉',title:'Scores Dipping',desc:'Recent scores dropped by '+Math.abs(analysis.trend)+'%. Consider reviewing topics at a slower pace.',action:null,btnText:null});
+    }
+  }
+
+  // Consistency recommendations
+  if(analysis.daysActive7<3){
+    recs.push({type:'consistency',icon:'📅',title:'Stay Consistent',desc:'You were active '+analysis.daysActive7+' days this week. Try to practice at least 4 days per week for best results.',action:null,btnText:null});
+  }
+
+  // Level-up opportunities
+  analysis.allTopics.forEach(function(t){
+    if(t.accuracy>=85&&t.level<5&&t.total>=10){
+      recs.push({type:'levelup',icon:'⬆️',title:'Ready to Level Up: '+(topicNames[t.topic]||t.topic),desc:t.accuracy+'% accuracy with '+t.total+' questions attempted. Try harder questions!',action:"startQuiz('"+t.subject+"','"+t.topic+"')",btnText:'Challenge Me'});
+    }
+  });
+
+  // Untried topics
+  var subjects={english:['punctuation','reading','writing'],maths:['geometry','problemSolving','number'],science:['biology','chemistry','physics','earthSpace']};
+  for(var subj in subjects){
+    subjects[subj].forEach(function(topic){
+      var key=subj+'_'+topic;
+      var ta=analysis.topicAccuracy[key];
+      if(!ta||ta.total===0){
+        recs.push({type:'explore',icon:'🔍',title:'Try: '+(topicNames[topic]||topic),desc:'You haven\'t explored '+subj+' → '+(topicNames[topic]||topic)+' yet. Give it a try!',action:"startQuiz('"+subj+"','"+topic+"')",btnText:'Start'});
+      }
+    });
+  }
+
+  return recs.slice(0,6);
+}
+
+// Render adaptive recommendations on home screen
+function renderAdaptiveHome(el){
+  var analysis=analyzePerformance(S);
+  if(!analysis||analysis.totalAttempted<3){
+    // Not enough data yet
+    el.innerHTML+='<div class="cd"><h3>🧠 Adaptive Learning</h3><div class="ds">Complete a few quizzes and I\'ll start giving you personalised recommendations based on your strengths and areas to improve.</div><div style="padding:16px;background:var(--pl);border-radius:var(--r);text-align:center;margin-top:12px"><strong>'+analysis.totalAttempted+'/3</strong> quizzes done — '+(3-analysis.totalAttempted)+' more to unlock smart recommendations</div></div>';
+    return;
+  }
+
+  var recs=getRecommendations(analysis);
+
+  // Accuracy ring
+  var acc=analysis.overallAccuracy;
+  var ringColor=acc>=80?'var(--g)':acc>=60?'var(--w)':'var(--e)';
+  var trendArrow=analysis.trend>0?'↑ +'+analysis.trend+'%':analysis.trend<0?'↓ '+analysis.trend+'%':'→ stable';
+  var trendColor=analysis.trend>0?'var(--g)':analysis.trend<0?'var(--e)':'var(--t2)';
+
+  var html='<div class="cd"><h3>🧠 Adaptive Learning Dashboard</h3>';
+  html+='<div style="display:flex;gap:20px;flex-wrap:wrap;margin:16px 0">';
+  // Accuracy circle
+  html+='<div style="text-align:center;min-width:120px"><div style="width:100px;height:100px;border-radius:50%;border:8px solid '+ringColor+';display:flex;align-items:center;justify-content:center;margin:0 auto"><span style="font-size:28px;font-weight:700;color:'+ringColor+'">'+acc+'%</span></div><div style="font-size:13px;color:var(--t2);margin-top:8px">Overall Accuracy</div></div>';
+  // Stats cards
+  html+='<div style="flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px">';
+  html+='<div style="background:var(--gl);padding:12px;border-radius:var(--r);text-align:center"><div style="font-size:22px;font-weight:700;color:#065f46">'+analysis.totalCompleted+'</div><div style="font-size:12px;color:#065f46">Quizzes Done</div></div>';
+  html+='<div style="background:var(--pl);padding:12px;border-radius:var(--r);text-align:center"><div style="font-size:22px;font-weight:700;color:var(--p)">'+analysis.streak+'</div><div style="font-size:12px;color:var(--p)">Day Streak</div></div>';
+  html+='<div style="background:var(--wl);padding:12px;border-radius:var(--r);text-align:center"><div style="font-size:22px;font-weight:700;color:#92400e">'+analysis.daysActive7+'/7</div><div style="font-size:12px;color:#92400e">Days This Week</div></div>';
+  html+='<div style="padding:12px;border-radius:var(--r);text-align:center;background:'+(analysis.trend>0?'var(--gl)':analysis.trend<0?'var(--el)':'#f8fafc')+'"><div style="font-size:18px;font-weight:700;color:'+trendColor+'">'+trendArrow+'</div><div style="font-size:12px;color:'+trendColor+'">Score Trend</div></div>';
+  html+='</div></div>';
+
+  // Recommendations
+  if(recs.length>0){
+    html+='<h3 style="margin-top:20px;margin-bottom:12px">Recommended For You</h3>';
+    recs.forEach(function(r){
+      var bgColor=r.type==='focus'?'var(--wl)':r.type==='positive'?'var(--gl)':r.type==='warning'?'var(--el)':r.type==='levelup'?'var(--vl)':'var(--pl)';
+      html+='<div style="display:flex;align-items:center;gap:12px;padding:14px;background:'+bgColor+';border-radius:var(--r);margin-bottom:8px">';
+      html+='<span style="font-size:24px">'+r.icon+'</span>';
+      html+='<div style="flex:1"><strong style="font-size:14px">'+r.title+'</strong><div style="font-size:13px;color:var(--t2);margin-top:2px">'+r.desc+'</div></div>';
+      if(r.action){
+        html+='<button class="bt bp" onclick="'+r.action+'" style="font-size:12px;padding:6px 14px;white-space:nowrap">'+r.btnText+'</button>';
+      }
+      html+='</div>';
+    });
+  }
+
+  // Weak vs Strong overview
+  if(analysis.weakAreas.length>0||analysis.strongAreas.length>0){
+    var topicNames={punctuation:'Punctuation',reading:'Reading',writing:'Writing',geometry:'Geometry',problemSolving:'Problem Solving',number:'Number',biology:'Biology',chemistry:'Chemistry',physics:'Physics',earthSpace:'Earth & Space',wholeNumbers:'Whole Numbers',numberProperties:'Number Properties',linesAngles:'Lines & Angles',fractions:'Fractions',decimals:'Decimals',algebra:'Algebra',percentage:'Percentage',equations:'Equations',polygons:'Polygons',probability:'Probability',statistics:'Statistics'};
+    html+='<div style="display:flex;gap:16px;margin-top:20px;flex-wrap:wrap">';
+    if(analysis.weakAreas.length>0){
+      html+='<div style="flex:1;min-width:200px"><h4 style="color:var(--e);margin-bottom:8px">Areas to Improve</h4>';
+      analysis.weakAreas.slice(0,3).forEach(function(w){
+        html+='<div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--el);border-radius:8px;margin-bottom:6px;font-size:13px"><span>'+(topicNames[w.topic]||w.topic)+'</span><span style="font-weight:600">'+w.accuracy+'%</span></div>';
+      });
+      html+='</div>';
+    }
+    if(analysis.strongAreas.length>0){
+      html+='<div style="flex:1;min-width:200px"><h4 style="color:var(--g);margin-bottom:8px">Strengths</h4>';
+      analysis.strongAreas.slice(0,3).forEach(function(s){
+        html+='<div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--gl);border-radius:8px;margin-bottom:6px;font-size:13px"><span>'+(topicNames[s.topic]||s.topic)+'</span><span style="font-weight:600">'+s.accuracy+'%</span></div>';
+      });
+      html+='</div>';
+    }
+    html+='</div>';
+  }
+
+  html+='</div>';
+  el.innerHTML+=html;
+}
+
+// =============================================
+// === ADAPTIVE PARENT PERFORMANCE DASHBOARD ===
+// =============================================
+function renderAdaptiveParentDash(kidProgress,kidName){
+  var analysis=analyzePerformance(kidProgress);
+  if(!analysis) return '<div class="cd"><div class="ds">No data yet.</div></div>';
+
+  var topicNames={punctuation:'Punctuation',reading:'Reading',writing:'Writing',geometry:'Geometry',problemSolving:'Problem Solving',number:'Number',biology:'Biology',chemistry:'Chemistry',physics:'Physics',earthSpace:'Earth & Space',wholeNumbers:'Whole Numbers',numberProperties:'Number Properties',linesAngles:'Lines & Angles',numberStrategies:'Number Strategies',posNegNumbers:'Pos/Neg Numbers',fractions:'Fractions',decimals:'Decimals',algebra:'Algebra',percentage:'Percentage',equations:'Equations',polygons:'Polygons',measurementArea:'Measurement',solids:'Solids',volumeMass:'Volume & Mass',coordGeometry:'Coord Geometry',ratioRates:'Ratio & Rates',probability:'Probability',statistics:'Statistics',transformations:'Transformations'};
+
+  var html='';
+
+  // === OVERVIEW CARD ===
+  var acc=analysis.overallAccuracy;
+  var ringColor=acc>=80?'#10b981':acc>=60?'#f59e0b':'#ef4444';
+  html+='<div class="cd"><h3>📊 Performance Overview — '+kidName+'</h3>';
+  html+='<div style="display:flex;gap:20px;flex-wrap:wrap;margin:16px 0;align-items:center">';
+  html+='<div style="text-align:center"><div style="width:110px;height:110px;border-radius:50%;border:10px solid '+ringColor+';display:flex;align-items:center;justify-content:center;margin:0 auto"><span style="font-size:30px;font-weight:700;color:'+ringColor+'">'+acc+'%</span></div><div style="font-size:13px;color:var(--t2);margin-top:8px">Overall Accuracy</div></div>';
+  html+='<div style="flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px">';
+  html+='<div style="background:#d1fae5;padding:14px;border-radius:var(--r);text-align:center"><div style="font-size:24px;font-weight:700;color:#065f46">'+analysis.totalCorrect+'</div><div style="font-size:12px;color:#065f46">Correct Answers</div></div>';
+  html+='<div style="background:#fee2e2;padding:14px;border-radius:var(--r);text-align:center"><div style="font-size:24px;font-weight:700;color:#991b1b">'+analysis.totalIncorrect+'</div><div style="font-size:12px;color:#991b1b">Incorrect</div></div>';
+  html+='<div style="background:#e8edff;padding:14px;border-radius:var(--r);text-align:center"><div style="font-size:24px;font-weight:700;color:#4361ee">'+analysis.totalCompleted+'</div><div style="font-size:12px;color:#4361ee">Quizzes Done</div></div>';
+  html+='<div style="background:#fef3c7;padding:14px;border-radius:var(--r);text-align:center"><div style="font-size:24px;font-weight:700;color:#92400e">'+analysis.streak+'</div><div style="font-size:12px;color:#92400e">Day Streak</div></div>';
+  html+='<div style="background:#ede9fe;padding:14px;border-radius:var(--r);text-align:center"><div style="font-size:24px;font-weight:700;color:#5b21b6">'+analysis.writings+'</div><div style="font-size:12px;color:#5b21b6">Writings</div></div>';
+  html+='<div style="background:#fce7f3;padding:14px;border-radius:var(--r);text-align:center"><div style="font-size:24px;font-weight:700;color:#9d174d">'+analysis.daysActive30+'</div><div style="font-size:12px;color:#9d174d">Days Active (30d)</div></div>';
+  html+='</div></div>';
+
+  // Trend indicator
+  if(analysis.trend!==null){
+    var tC=analysis.trend>0?'#065f46':analysis.trend<0?'#991b1b':'#64748b';
+    var tBg=analysis.trend>0?'#d1fae5':analysis.trend<0?'#fee2e2':'#f8fafc';
+    var tIcon=analysis.trend>0?'📈':analysis.trend<0?'📉':'➡️';
+    html+='<div style="padding:12px;background:'+tBg+';border-radius:var(--r);margin-top:8px;font-size:14px;color:'+tC+'">'+tIcon+' <strong>Trend:</strong> Recent 5 quizzes averaged '+analysis.last5Avg+'% vs previous 5 at '+analysis.prev5Avg+'% ('+(analysis.trend>0?'+':'')+analysis.trend+'%)</div>';
+  }
+  html+='</div>';
+
+  // === TOPIC ACCURACY CHART (bar chart using divs) ===
+  html+='<div class="cd"><h3>📊 Topic-by-Topic Accuracy</h3><div class="ds">Sorted by accuracy — red areas need the most attention</div>';
+  var sorted=analysis.allTopics.slice().sort(function(a,b){return (a.accuracy||0)-(b.accuracy||0);});
+  if(sorted.length===0){
+    html+='<div class="ds">Not enough data yet. Need at least 3 questions attempted per topic.</div>';
+  } else {
+    sorted.forEach(function(t){
+      var barColor=t.accuracy>=80?'#10b981':t.accuracy>=60?'#f59e0b':'#ef4444';
+      var label=(topicNames[t.topic]||t.topic);
+      var subjLabel=t.subject.charAt(0).toUpperCase()+t.subject.slice(1);
+      html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">';
+      html+='<div style="width:150px;font-size:13px;text-align:right;flex-shrink:0"><span style="color:var(--t2);font-size:11px">'+subjLabel+'</span><br>'+label+'</div>';
+      html+='<div style="flex:1;background:var(--b);border-radius:6px;height:24px;overflow:hidden;position:relative">';
+      html+='<div style="height:100%;width:'+t.accuracy+'%;background:'+barColor+';border-radius:6px;transition:width 0.5s"></div>';
+      html+='<span style="position:absolute;right:8px;top:3px;font-size:12px;font-weight:600">'+t.accuracy+'% (L'+t.level+')</span>';
+      html+='</div></div>';
+    });
+  }
+  html+='</div>';
+
+  // === WEAK AREAS & RECOMMENDATIONS ===
+  if(analysis.weakAreas.length>0){
+    html+='<div class="cd" style="border-left:4px solid var(--e)"><h3>⚠️ Areas Needing Focus</h3>';
+    html+='<div class="ds">These topics have below 50% accuracy and need extra practice.</div>';
+    analysis.weakAreas.forEach(function(w){
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:var(--el);border-radius:var(--r);margin-bottom:8px">';
+      html+='<div><strong>'+(topicNames[w.topic]||w.topic)+'</strong> <span style="color:var(--t2);font-size:12px">('+w.subject+')</span></div>';
+      html+='<div style="display:flex;align-items:center;gap:12px"><span class="badge" style="background:#fee2e2;color:#991b1b">'+w.accuracy+'% accuracy</span><span style="font-size:12px;color:var(--t2)">Level '+w.level+' | '+w.total+' Qs</span></div>';
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+
+  // === RECENT SESSION HISTORY ===
+  if(analysis.recentSessions.length>0){
+    html+='<div class="cd"><h3>📋 Recent Quiz History</h3>';
+    html+='<table class="tb"><tr><th>Date</th><th>Subject</th><th>Topic</th><th>Score</th><th>Result</th></tr>';
+    analysis.recentSessions.slice(0,15).forEach(function(s){
+      var pct=s.pct||0;
+      var badge=pct>=80?'<span class="badge b1">Excellent</span>':pct>=60?'<span class="badge b2">Good</span>':'<span class="badge" style="background:#fee2e2;color:#991b1b">Needs Work</span>';
+      html+='<tr><td style="font-size:12px">'+s.date+'</td><td>'+s.subject+'</td><td>'+(topicNames[s.topic]||s.topic)+'</td><td>'+s.score+'/'+s.total+'</td><td>'+badge+'</td></tr>';
+    });
+    html+='</table></div>';
+  }
+
+  // === ACTIVITY HEATMAP (last 14 days) ===
+  html+='<div class="cd"><h3>📅 Activity Heatmap (Last 14 Days)</h3>';
+  html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">';
+  for(var i=13;i>=0;i--){
+    var d=new Date();d.setDate(d.getDate()-i);
+    var dStr=d.toDateString();
+    var dayData=analysis.activityDays[dStr];
+    var count=dayData?dayData.count:0;
+    var avgPct=dayData&&count>0?Math.round(dayData.totalPct/count):0;
+    var cellColor=count===0?'#e2e8f0':count<=2?'#bbf7d0':count<=4?'#4ade80':'#16a34a';
+    var dayLabel=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+    var dateLabel=(d.getMonth()+1)+'/'+d.getDate();
+    html+='<div style="text-align:center;min-width:54px"><div style="font-size:10px;color:var(--t2)">'+dayLabel+'</div>';
+    html+='<div style="width:50px;height:50px;background:'+cellColor+';border-radius:8px;display:flex;align-items:center;justify-content:center;color:'+(count>0?'#fff':'var(--t2)')+';font-weight:600;font-size:'+(count>0?'16px':'12px')+'">'+(count>0?count:'-')+'</div>';
+    html+='<div style="font-size:10px;color:var(--t2)">'+dateLabel+'</div>';
+    if(count>0) html+='<div style="font-size:9px;color:var(--t2)">'+avgPct+'% avg</div>';
+    html+='</div>';
+  }
+  html+='</div><div style="margin-top:8px;font-size:12px;color:var(--t2)">Number shown = quizzes completed that day</div></div>';
+
+  // === EXPORT PERFORMANCE DATA ===
+  html+='<div class="cd"><h3>📤 Export Performance Data</h3>';
+  html+='<div class="ds">Download a summary of performance data as JSON (useful for tracking or sharing with tutors).</div>';
+  html+='<button class="bt bp" onclick="exportPerformanceJSON()" style="margin-top:8px">Export Performance JSON</button></div>';
+
+  return html;
+}
+
+function exportPerformanceJSON(){
+  // Find selected kid
+  var sel=document.getElementById('progressKid');
+  if(!sel||sel.value==='all') return alert('Please select a specific student first.');
+  var idx=parseInt(sel.value);
+  var k=DB.kids[idx];
+  if(!k) return;
+  var analysis=analyzePerformance(k.progress);
+  var data={
+    student:k.name,
+    exportDate:new Date().toISOString(),
+    overallAccuracy:analysis.overallAccuracy,
+    totalQuizzes:analysis.totalCompleted,
+    streak:analysis.streak,
+    daysActive30:analysis.daysActive30,
+    weakAreas:analysis.weakAreas.map(function(w){return {topic:w.topic,subject:w.subject,accuracy:w.accuracy,level:w.level};}),
+    strongAreas:analysis.strongAreas.map(function(s){return {topic:s.topic,subject:s.subject,accuracy:s.accuracy,level:s.level};}),
+    recentSessions:analysis.recentSessions.slice(0,20),
+    trend:analysis.trend,
+    writings:analysis.writings
+  };
+  var blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');a.href=url;a.download=k.name+'_performance_'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
 }
 
 // === INITIALIZE APP ===
