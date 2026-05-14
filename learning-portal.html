@@ -116,7 +116,7 @@ function defaultKidProgress(){
 function defaultDB(){
   return {
     admin:{username:'admin',password:'admin123'},
-    settings:{provider:'claude',model:'claude-sonnet-4-6',key:'',geminiKey:''},
+    settings:{provider:'claude',model:'claude-opus-4-6',key:'',geminiKey:''},
     kids:[]
   };
 }
@@ -180,7 +180,7 @@ function migrateOldData(){
 
 let DB=migrateOldData();
 // Fix deprecated model IDs
-if(DB.settings.model==='claude-sonnet-4-20250514'){DB.settings.model='claude-sonnet-4-6';saveDB(DB);}
+if(DB.settings.model==='claude-sonnet-4-20250514'||DB.settings.model==='claude-sonnet-4-6'){DB.settings.model='claude-opus-4-6';saveDB(DB);}
 // Migrate all kids: ensure science progress exists (for accounts created before science was added)
 (function(){let changed=false;DB.kids.forEach(function(k){
   if(!k.progress.science){k.progress.science={biology:{lv:1,ok:0,no:0,h:[],sn:[]},chemistry:{lv:1,ok:0,no:0,h:[],sn:[]},physics:{lv:1,ok:0,no:0,h:[],sn:[]},earthSpace:{lv:1,ok:0,no:0,h:[],sn:[]}};changed=true;}
@@ -192,7 +192,7 @@ let S=null; // Points to current kid's progress (shortcut)
 
 // The app-level settings come from DB.settings
 function getProvider(){return DB.settings.provider||'claude';}
-function getModel(){return DB.settings.model||'claude-sonnet-4-6';}
+function getModel(){return DB.settings.model||'claude-opus-4-6';}
 
 // === LOGIN SCREEN ===
 function showLogin(){
@@ -2245,7 +2245,7 @@ function renderStudentSettings(el){
   let providerBtns=['claude','gemini'].map(function(p){
     let isOn=DB.settings.provider===p;
     let label=p==='claude'?'Claude (Paid)':'Google Gemini (Free)';
-    return `<button class="${isOn?'on':''}" onclick="DB.settings.provider='${p}';if(DB.settings.provider==='gemini'&&!DB.settings.model.startsWith('gemini'))DB.settings.model='gemini-2.0-flash';if(DB.settings.provider==='claude'&&!DB.settings.model.startsWith('claude'))DB.settings.model='claude-sonnet-4-6';saveDB(DB);go('settings')">${label}</button>`;
+    return `<button class="${isOn?'on':''}" onclick="DB.settings.provider='${p}';if(DB.settings.provider==='gemini'&&!DB.settings.model.startsWith('gemini'))DB.settings.model='gemini-2.0-flash';if(DB.settings.provider==='claude'&&!DB.settings.model.startsWith('claude'))DB.settings.model='claude-opus-4-6';saveDB(DB);go('settings')">${label}</button>`;
   }).join('');
   let models=AI_MODELS[DB.settings.provider]||[];
   let modelOpts=models.map(function(m){
