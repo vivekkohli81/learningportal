@@ -892,6 +892,12 @@ function renderEnglish(el){
         ${pctBar(ws.ok,ws.no)}
         <div style="margin-top:8px;font-size:12px;color:var(--t2)">4 writing types: Stories, Opinion, Descriptive, Letters</div>
       </div>
+      <div class="sc" onclick="openFreeWritingStudio()" style="border-left:4px solid #06b6d4">
+        <h3>Free Writing Studio</h3>
+        <div class="ds">Write anything you want — stories, diary entries, essays — or upload handwritten work. AI gives feedback and creates your next assignment.</div>
+        <span class="badge b3">AI Powered</span>
+        <div style="margin-top:8px;font-size:12px;color:var(--t2)">${S.wr?S.wr.filter(function(w){return w.mode==='free'||w.mode==='free_upload';}).length:0} free writings completed</div>
+      </div>
     </div>
   </div>`;
 }
@@ -2204,6 +2210,255 @@ async function generateAIWritingPrompt(typeKey){
   let recentAI=S.wr.filter(function(w){return w.mode==='ai'&&w.aiFeedback;});
   let focusArea=recentAI.length>0?(recentAI[recentAI.length-1].aiFeedback.next_focus||'general writing skills'):'general writing skills';
   await generateAdaptivePrompt(typeKey,focusArea);
+}
+
+// === FREE WRITING STUDIO ===
+var _freeWritingImage=null;
+
+function openFreeWritingStudio(){
+  var SC=document.getElementById('SC');
+  var s=S.english.writing;
+  // Count free writings
+  var freeWrites=S.wr?S.wr.filter(function(w){return w.mode==='free'||w.mode==='free_upload';}):[];
+  var recentFree=freeWrites.slice(-5);
+  // Check for AI-generated next assignment
+  var nextAssignment=window._freeWritingNextAssignment||null;
+
+  var historyHtml='';
+  if(recentFree.length>0){
+    historyHtml='<div class="cd"><h3>Your Recent Free Writings</h3>';
+    recentFree.reverse().forEach(function(w,i){
+      var scoreColor=(w.score||0)>=75?'var(--g)':(w.score||0)>=50?'var(--w)':'var(--e)';
+      historyHtml+='<div style="padding:12px;border:1px solid var(--b);border-radius:var(--r);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">';
+      historyHtml+='<div><strong>'+(w.title||'Untitled')+'</strong><div style="font-size:12px;color:var(--t2)">'+w.date+(w.mode==='free_upload'?' — Uploaded work':'')+' — '+(w.text?w.text.split(/\s+/).length:0)+' words</div></div>';
+      historyHtml+='<span style="font-weight:700;color:'+scoreColor+'">'+(w.score||'—')+'/100</span>';
+      historyHtml+='</div>';
+    });
+    historyHtml+='</div>';
+  }
+
+  var nextHtml='';
+  if(nextAssignment){
+    nextHtml='<div class="cd" style="border-left:4px solid var(--v);background:var(--pl)"><h3 style="color:var(--v)">Your Next Assignment (AI-Generated)</h3><div style="font-size:15px;font-weight:600;margin:8px 0">'+nextAssignment.title+'</div><div class="ds">'+nextAssignment.instructions+'</div><div style="margin-top:12px"><button class="bt" style="background:var(--v);color:#fff" onclick="startFreeWriteFromAssignment()">Start This Assignment</button></div></div>';
+  }
+
+  SC.innerHTML='<div class="cd"><h2 style="color:#06b6d4">Free Writing Studio</h2><div class="ds">Write anything you want — no rules, no fixed topics. Or upload a photo of something you wrote by hand. The AI will read your work and give you detailed feedback, then create a new assignment based on what you need to practise.</div><div style="margin-top:8px">'+lvBadge(s.lv)+' <span style="font-size:13px;color:var(--t2);margin-left:8px">'+freeWrites.length+' free writings completed</span></div></div>'+nextHtml+'<div class="sg"><div class="sc" onclick="startFreeWrite()" style="border-left:4px solid #06b6d4"><div style="font-size:28px;margin-bottom:8px">✍️</div><h3>Write Something New</h3><div class="ds">Type anything — a story, a diary entry, a letter, a poem, an essay, or whatever you feel like writing today.</div></div><div class="sc" onclick="startFreeUpload()" style="border-left:4px solid #8b5cf6"><div style="font-size:28px;margin-bottom:8px">📷</div><h3>Upload Handwritten Work</h3><div class="ds">Take a photo or upload a picture of something you wrote on paper. AI will read your handwriting and give feedback.</div></div>'+(hasAIKey()?'<div class="sc" onclick="generateFreeWritingAssignment()" style="border-left:4px solid var(--w);background:var(--wl)"><div style="font-size:28px;margin-bottom:8px">🤖</div><h3>Get an AI Assignment</h3><div class="ds">The AI will look at your past writing and create a personalised assignment just for you.</div><span class="badge b3">AI Powered</span></div>':'')+'</div>'+historyHtml+'<div style="margin-top:16px"><button class="bt" style="background:var(--b)" onclick="go(\'english\')">Back to English</button></div>';
+}
+
+function startFreeWrite(){
+  var SC=document.getElementById('SC');
+  _freeWritingImage=null;
+  var assignment=window._freeWritingCurrentAssignment||null;
+  var titleHtml=assignment?'<div class="cd" style="border-left:4px solid var(--v);background:var(--pl)"><h3>'+assignment.title+'</h3><div class="ds">'+assignment.instructions+'</div>'+(assignment.tips?'<div style="margin-top:8px;font-size:13px;color:var(--t2)"><strong>Tips:</strong> '+assignment.tips+'</div>':'')+'</div>':'';
+
+  SC.innerHTML='<div class="cd"><h2 style="color:#06b6d4">Free Writing</h2><div class="ds">'+(assignment?'Follow the assignment below, or write whatever you like.':'Write whatever you want! A story, diary entry, letter, poem, essay — anything at all. The AI will read your work and give you feedback.')+'</div></div>'+titleHtml+'<div class="cd"><h3>Give your writing a title:</h3><input type="text" id="freeTitle" class="api" placeholder="e.g. My Weekend Adventure, A Letter to My Future Self..." style="margin-bottom:16px"><h3>Write here:</h3><textarea class="wr" id="freeText" style="min-height:280px" placeholder="Start writing here...\n\nYou can write about anything:\n- A story from your imagination\n- Something that happened today\n- A letter to someone\n- Your opinion on something\n- A poem\n- A diary entry\n- Anything else!"></textarea><div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px"><div style="font-size:12px;color:var(--t2)" id="freeWCount">0 words | 0 sentences</div></div><div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">'+(hasAIKey()?'<button class="bt bp" onclick="submitFreeWriting()">Submit for AI Feedback</button>':'')+'<button class="bt" style="background:var(--g);color:#fff" onclick="submitFreeWritingBasic()">Quick Check</button><button class="bt" style="background:var(--b)" onclick="window._freeWritingCurrentAssignment=null;openFreeWritingStudio()">Cancel</button></div></div>';
+
+  document.getElementById('freeText').addEventListener('input',function(){
+    var t=this.value.trim();
+    var words=t?t.split(/\s+/).length:0;
+    var sentences=(t.match(/[.!?]+/g)||[]).length;
+    document.getElementById('freeWCount').textContent=words+' words | '+sentences+' sentences';
+  });
+}
+
+function startFreeWriteFromAssignment(){
+  window._freeWritingCurrentAssignment=window._freeWritingNextAssignment;
+  window._freeWritingNextAssignment=null;
+  startFreeWrite();
+}
+
+function startFreeUpload(){
+  var SC=document.getElementById('SC');
+  _freeWritingImage=null;
+
+  SC.innerHTML='<div class="cd"><h2 style="color:#8b5cf6">Upload Handwritten Work</h2><div class="ds">Upload a photo of something you wrote on paper. The AI will read your handwriting and give you feedback on your writing.</div></div><div class="cd"><h3>Give your writing a title:</h3><input type="text" id="freeUploadTitle" class="api" placeholder="e.g. My English Essay, Creative Story..." style="margin-bottom:16px"><h3>What type of writing is this?</h3><select id="freeUploadType" class="api" style="padding:10px;margin-bottom:16px;appearance:auto;background:var(--c);cursor:pointer"><option value="story">Story / Narrative</option><option value="essay">Essay / Opinion</option><option value="letter">Letter</option><option value="diary">Diary Entry</option><option value="poem">Poem</option><option value="homework">School Homework</option><option value="other">Other</option></select><h3>Upload your photo:</h3><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><label style="display:flex;align-items:center;gap:6px;padding:14px 20px;border:2px dashed #8b5cf6;border-radius:var(--r);color:#8b5cf6;font-size:14px;font-weight:500;cursor:pointer;flex:1;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Choose Photo<input type="file" accept="image/*" id="freeUploadFile" onchange="handleFreeUploadImage(this)" style="display:none"></label><label style="display:flex;align-items:center;gap:6px;padding:14px 20px;border:2px dashed #06b6d4;border-radius:var(--r);color:#06b6d4;font-size:14px;font-weight:500;cursor:pointer;flex:1;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>Take Photo<input type="file" accept="image/*" capture="environment" id="freeUploadCamera" onchange="handleFreeUploadImage(this)" style="display:none"></label></div><div id="freeUploadPreview" style="margin-bottom:12px"></div><h3>Any extra notes? (optional)</h3><textarea class="wr" id="freeUploadNotes" style="min-height:80px" placeholder="e.g. This was my English homework about persuasive writing. I had to write about whether school uniforms should be compulsory."></textarea><div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">'+(hasAIKey()?'<button class="bt bp" onclick="submitFreeUpload()">Submit for AI Feedback</button>':'<div class="ds" style="color:var(--e)">AI key required to analyse uploaded work. Set it in Parent Dashboard Settings.</div>')+'<button class="bt" style="background:var(--b)" onclick="openFreeWritingStudio()">Cancel</button></div></div>';
+}
+
+function handleFreeUploadImage(input){
+  if(!input||!input.files||!input.files[0])return;
+  var file=input.files[0];
+  if(file.size>10*1024*1024){alert('Image is too large (max 10MB). Please use a smaller image.');return;}
+  var reader=new FileReader();
+  reader.onload=function(e){
+    _freeWritingImage=e.target.result;
+    var preview=document.getElementById('freeUploadPreview');
+    if(preview){
+      preview.innerHTML='<div style="position:relative;display:inline-block"><img src="'+_freeWritingImage+'" style="max-width:400px;max-height:300px;border-radius:var(--r);border:2px solid #8b5cf6"><button onclick="removeFreeUploadImage()" style="position:absolute;top:-8px;right:-8px;width:28px;height:28px;border-radius:50%;border:none;background:var(--e);color:#fff;cursor:pointer;font-size:16px;font-weight:700">✕</button></div><div style="font-size:12px;color:#8b5cf6;margin-top:4px">Photo attached — AI will read your handwriting</div>';
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeFreeUploadImage(){
+  _freeWritingImage=null;
+  var preview=document.getElementById('freeUploadPreview');
+  if(preview) preview.innerHTML='';
+  var f1=document.getElementById('freeUploadFile');if(f1)f1.value='';
+  var f2=document.getElementById('freeUploadCamera');if(f2)f2.value='';
+}
+
+function submitFreeWritingBasic(){
+  var text=(document.getElementById('freeText')||{}).value||'';
+  var title=(document.getElementById('freeTitle')||{}).value||'Untitled Free Writing';
+  if(!text.trim()||text.trim().split(/\s+/).length<5){alert('Please write at least 5 words before submitting.');return;}
+  var s=S.english.writing;
+  var words=text.trim().split(/\s+/).length;
+  var sentences=(text.match(/[.!?]+/g)||[]).length;
+  var score=0,feedback=[];
+  if(words>=30){score+=25;feedback.push({ok:true,msg:'Good length! You wrote '+words+' words.'});}
+  else{feedback.push({ok:false,msg:'Try to write more. You wrote '+words+' words. Aim for at least 30.'});}
+  if(sentences>=3){score+=25;feedback.push({ok:true,msg:'Good use of sentence endings ('+sentences+' found).'});}
+  else{feedback.push({ok:false,msg:'Use full stops, question marks, or exclamation marks to end sentences.'});}
+  if(/^[A-Z]/.test(text.trim())){score+=25;feedback.push({ok:true,msg:'Starts with a capital letter.'});}
+  else{feedback.push({ok:false,msg:'Always start your writing with a capital letter.'});}
+  if(text.includes('\n')||words>40){score+=25;feedback.push({ok:true,msg:'Good structure!'});}
+  else{feedback.push({ok:false,msg:'Try to develop your ideas more and use paragraphs.'});}
+  s.ok+=Math.round(score/25);s.no+=(4-Math.round(score/25));
+  s.h.push({date:new Date().toDateString(),score:score,total:100,pct:score});
+  S.total++;S.done.push({date:new Date().toDateString(),subject:'english',topic:'writing',score:score+'/100'});
+  S.wr.push({date:new Date().toDateString(),title:title.trim(),type:'free',text:text,score:score,feedback:feedback,mode:'free'});
+  if(score>=80&&s.lv<5)s.lv++;
+  markActive();sv();syncPerformanceToServer();
+  var fbHtml=feedback.map(function(f){return '<div class="fb '+(f.ok?'ok':'no')+'" style="margin-bottom:8px">'+(f.ok?'✓':'✗')+' '+f.msg+'</div>';}).join('');
+  var scoreColor=score>=75?'var(--g)':score>=50?'var(--w)':'var(--e)';
+  var SC=document.getElementById('SC');
+  SC.innerHTML='<div class="cd" style="text-align:center"><h2>Quick Check Complete</h2><div style="font-size:48px;font-weight:700;color:'+scoreColor+';margin:16px 0">'+score+'/100</div><div class="ds">For detailed teacher-style feedback, use "Submit for AI Feedback" next time.</div></div><div class="cd"><h3>Basic Feedback:</h3>'+fbHtml+'</div><div style="margin-top:16px;display:flex;gap:8px"><button class="bt bp" onclick="openFreeWritingStudio()">Back to Free Writing Studio</button><button class="bt bg" onclick="go(\'english\')">Back to English</button></div>';
+  window._freeWritingCurrentAssignment=null;
+}
+
+async function submitFreeWriting(){
+  var text=(document.getElementById('freeText')||{}).value||'';
+  var title=(document.getElementById('freeTitle')||{}).value||'Untitled Free Writing';
+  if(!text.trim()||text.trim().split(/\s+/).length<5){alert('Please write at least 5 words before submitting.');return;}
+  if(!hasAIKey()){alert('Please set your API key in the Parent Dashboard first.');return;}
+  var s=S.english.writing;
+  var SC=document.getElementById('SC');
+  SC.innerHTML='<div class="cd" style="text-align:center"><h2>AI Teacher is reading your writing...</h2><div class="ds">Checking grammar, structure, ideas, vocabulary, and style.</div><div class="pb"><div class="pf" style="width:60%"></div></div><div style="margin-top:16px;color:var(--t2);font-size:13px">This usually takes 10-20 seconds.</div></div>';
+
+  var lvNames={1:'beginner (Year 5-6, age 10-11)',2:'intermediate (Year 7-8)',3:'advanced (Year 8-9)',4:'expert (Year 9-10)',5:'master (Year 10-11)'};
+  var assignment=window._freeWritingCurrentAssignment;
+  var contextLine=assignment?'The student was given this assignment: "'+assignment.title+': '+assignment.instructions+'"\n':'The student chose to write freely (no prompt given). They chose their own topic.\n';
+
+  var aiPrompt='You are a supportive English teacher for a '+lvNames[s.lv]+' student who learns best with clear, direct language.\n\n'+contextLine+'Title: "'+title.trim()+'"\n\nStudent wrote:\n---\n'+text+'\n---\n\nAnalyse their writing and return ONLY a JSON object:\n{"overall_score":<0-100>,"scores":{"grammar":{"score":<0-100>,"comment":"<1-2 sentences>"},"spelling":{"score":<0-100>,"comment":"<1-2 sentences>"},"structure":{"score":<0-100>,"comment":"<1-2 sentences>"},"ideas":{"score":<0-100>,"comment":"<1-2 sentences>"},"vocabulary":{"score":<0-100>,"comment":"<1-2 sentences>"}},"strengths":["<specific strength>","<another>"],"errors":[{"original":"<exact text>","corrected":"<fixed version>","rule":"<rule explained simply>"}],"corrected_version":"<full corrected text>","improvement_tips":["<tip 1>","<tip 2>","<tip 3>"],"next_focus":"<one specific area to practise next>","encouragement":"<warm encouraging sentence>","next_assignment":{"title":"<a new writing assignment title based on what they need to practise>","instructions":"<2-3 sentences describing the assignment>","tips":"<1-2 tips to help them improve the weak area>","type":"<story|essay|letter|diary|poem|description>","min_words":<target word count>}}';
+
+  try{
+    var respText=await callAI(aiPrompt,3000);
+    var match=respText.match(/\{[\s\S]*\}/);
+    if(!match)throw new Error('Could not parse AI response.');
+    var fb=JSON.parse(match[0]);
+    var sc=fb.overall_score||50;
+    s.ok+=Math.round(sc/20);s.no+=(5-Math.round(sc/20));
+    s.h.push({date:new Date().toDateString(),score:sc,total:100,pct:sc});
+    S.total++;S.done.push({date:new Date().toDateString(),subject:'english',topic:'writing',score:sc+'/100'});
+    S.wr.push({date:new Date().toDateString(),title:title.trim(),type:'free',text:text,score:sc,aiFeedback:fb,mode:'free'});
+    if(sc>=80&&s.lv<5)s.lv++;else if(sc<40&&s.lv>1)s.lv--;
+    // Save next assignment for the studio
+    if(fb.next_assignment){window._freeWritingNextAssignment=fb.next_assignment;}
+    markActive();sv();syncPerformanceToServer();
+    renderFreeWritingFeedback(text,title.trim(),fb);
+  }catch(e){
+    SC.innerHTML='<div class="cd"><h2>Could not get AI feedback</h2><div class="ds" style="color:var(--e)">'+e.message+'</div><div style="margin-top:16px"><button class="bt bp" onclick="startFreeWrite()">Try Again</button><button class="bt" style="background:var(--b);margin-left:8px" onclick="openFreeWritingStudio()">Back</button></div></div>';
+  }
+  window._freeWritingCurrentAssignment=null;
+}
+
+async function submitFreeUpload(){
+  if(!_freeWritingImage){alert('Please upload or take a photo of your handwritten work first.');return;}
+  if(!hasAIKey()){alert('Please set your API key in the Parent Dashboard first.');return;}
+  var title=(document.getElementById('freeUploadTitle')||{}).value||'Uploaded Handwritten Work';
+  var writingType=(document.getElementById('freeUploadType')||{}).value||'other';
+  var notes=(document.getElementById('freeUploadNotes')||{}).value||'';
+  var s=S.english.writing;
+  var SC=document.getElementById('SC');
+  SC.innerHTML='<div class="cd" style="text-align:center"><h2>AI Teacher is reading your handwriting...</h2><div class="ds">The AI is looking at your photo and analysing your writing. This may take a moment.</div><div class="pb"><div class="pf" style="width:50%"></div></div><div style="margin-top:16px;color:var(--t2);font-size:13px">This usually takes 15-30 seconds.</div></div>';
+
+  var lvNames={1:'beginner (Year 5-6, age 10-11)',2:'intermediate (Year 7-8)',3:'advanced (Year 8-9)',4:'expert (Year 9-10)',5:'master (Year 10-11)'};
+  var typeNames={story:'a story/narrative',essay:'an essay/opinion piece',letter:'a letter',diary:'a diary entry',poem:'a poem',homework:'school homework',other:'a piece of writing'};
+
+  var aiPrompt='You are a supportive English teacher for a '+lvNames[s.lv]+' student.\n\nThe student has uploaded a photo of handwritten work. They said it is '+typeNames[writingType]+'.\nTitle: "'+title.trim()+'"\n'+(notes?'Student notes: "'+notes+'"\n':'')+'[The student has attached a photo of their handwritten work.]\n\nPlease:\n1. First, transcribe what you can read from the handwriting\n2. Then analyse the writing quality\n\nReturn ONLY a JSON object:\n{"transcription":"<your best reading of their handwriting>","overall_score":<0-100>,"scores":{"grammar":{"score":<0-100>,"comment":"<1-2 sentences>"},"spelling":{"score":<0-100>,"comment":"<1-2 sentences>"},"structure":{"score":<0-100>,"comment":"<1-2 sentences>"},"ideas":{"score":<0-100>,"comment":"<1-2 sentences>"},"vocabulary":{"score":<0-100>,"comment":"<1-2 sentences>"},"handwriting":{"score":<0-100>,"comment":"<1-2 sentences about legibility, neatness, spacing>"}},"strengths":["<specific strength>","<another>"],"errors":[{"original":"<text from their writing>","corrected":"<fixed version>","rule":"<rule explained simply>"}],"corrected_version":"<full corrected text>","improvement_tips":["<tip 1>","<tip 2>","<tip 3>"],"next_focus":"<one specific area to practise next>","encouragement":"<warm encouraging sentence>","next_assignment":{"title":"<a new writing assignment>","instructions":"<2-3 sentences>","tips":"<tips for weak area>","type":"<story|essay|letter|diary|poem|description>","min_words":<target>}}';
+
+  try{
+    var respText=await callAI(aiPrompt,3000);
+    var match=respText.match(/\{[\s\S]*\}/);
+    if(!match)throw new Error('Could not parse AI response.');
+    var fb=JSON.parse(match[0]);
+    var sc=fb.overall_score||50;
+    s.ok+=Math.round(sc/20);s.no+=(5-Math.round(sc/20));
+    s.h.push({date:new Date().toDateString(),score:sc,total:100,pct:sc});
+    S.total++;S.done.push({date:new Date().toDateString(),subject:'english',topic:'writing',score:sc+'/100'});
+    S.wr.push({date:new Date().toDateString(),title:title.trim(),type:writingType,text:fb.transcription||'(uploaded image)',score:sc,aiFeedback:fb,mode:'free_upload'});
+    if(sc>=80&&s.lv<5)s.lv++;else if(sc<40&&s.lv>1)s.lv--;
+    if(fb.next_assignment){window._freeWritingNextAssignment=fb.next_assignment;}
+    markActive();sv();syncPerformanceToServer();
+    renderFreeUploadFeedback(fb,title.trim());
+  }catch(e){
+    SC.innerHTML='<div class="cd"><h2>Could not analyse uploaded work</h2><div class="ds" style="color:var(--e)">'+e.message+'</div><div style="margin-top:16px"><button class="bt bp" onclick="startFreeUpload()">Try Again</button><button class="bt" style="background:var(--b);margin-left:8px" onclick="openFreeWritingStudio()">Back</button></div></div>';
+  }
+  _freeWritingImage=null;
+}
+
+function renderFreeWritingFeedback(originalText,title,fb){
+  var SC=document.getElementById('SC');
+  var scoreColor=fb.overall_score>=75?'var(--g)':fb.overall_score>=50?'var(--w)':'var(--e)';
+  var categories=['grammar','spelling','structure','ideas','vocabulary'];
+  var catLabels={grammar:'Grammar & Punctuation',spelling:'Spelling',structure:'Structure & Organisation',ideas:'Ideas & Content',vocabulary:'Vocabulary & Word Choice'};
+  var scoreHtml=categories.map(function(cat){
+    var d=(fb.scores||{})[cat];if(!d)return '';
+    var c=d.score>=75?'var(--g)':d.score>=50?'var(--w)':'var(--e)';
+    return '<div style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center"><strong>'+catLabels[cat]+'</strong><span style="font-weight:700;color:'+c+'">'+d.score+'/100</span></div><div class="pb"><div class="pf" style="width:'+d.score+'%;background:'+c+'"></div></div><div style="font-size:13px;color:var(--t2)">'+d.comment+'</div></div>';
+  }).join('');
+  var strengthsHtml=(fb.strengths||[]).map(function(s){return '<div style="padding:8px 12px;background:var(--gl);border-radius:8px;margin-bottom:8px;font-size:14px">✓ '+s+'</div>';}).join('');
+  var errorsHtml=(fb.errors||[]).length>0?'<div class="cd"><h3 style="color:var(--e)">Errors Found ('+fb.errors.length+')</h3>'+fb.errors.map(function(e){return '<div style="background:#f8fafc;padding:12px;border-radius:8px;margin-bottom:8px;border-left:3px solid var(--e)"><div style="font-size:13px;color:var(--e);text-decoration:line-through">'+e.original+'</div><div style="font-size:13px;color:var(--g);font-weight:600;margin:4px 0">'+e.corrected+'</div><div style="font-size:12px;color:var(--t2)">Rule: '+e.rule+'</div></div>';}).join('')+'</div>':'';
+  var tipsHtml=(fb.improvement_tips||[]).map(function(t,i){return '<div style="padding:10px 12px;background:var(--pl);border-radius:8px;margin-bottom:8px;font-size:14px"><strong>Tip '+(i+1)+':</strong> '+t+'</div>';}).join('');
+  var nextHtml='';
+  if(fb.next_assignment){
+    nextHtml='<div class="cd" style="border-left:4px solid var(--v);background:var(--pl)"><h3 style="color:var(--v)">Your Next Assignment</h3><div style="font-size:15px;font-weight:600;margin:8px 0">'+fb.next_assignment.title+'</div><div class="ds">'+fb.next_assignment.instructions+'</div>'+(fb.next_assignment.tips?'<div style="margin-top:8px;font-size:13px;color:var(--t2)"><strong>Tips:</strong> '+fb.next_assignment.tips+'</div>':'')+'<div style="margin-top:12px"><button class="bt" style="background:var(--v);color:#fff" onclick="startFreeWriteFromAssignment()">Start This Assignment Now</button></div></div>';
+  }
+  SC.innerHTML='<div class="cd" style="text-align:center"><h2>AI Teacher Feedback</h2><div style="font-size:14px;color:var(--t2)">'+title+'</div><div style="font-size:56px;font-weight:700;color:'+scoreColor+';margin:16px 0">'+fb.overall_score+'/100</div><div style="background:var(--pl);padding:16px;border-radius:var(--r);font-size:15px;margin:12px 0">'+(fb.encouragement||'Well done for completing this writing!')+'</div></div><div class="cd"><h3>Scores by Area</h3>'+scoreHtml+'</div><div class="cd"><h3 style="color:var(--g)">What You Did Well</h3>'+strengthsHtml+'</div>'+errorsHtml+'<div class="cd"><h3>Corrected Version</h3><div style="background:var(--gl);padding:16px;border-radius:var(--r);border:1px solid var(--g);white-space:pre-wrap;font-size:14px;line-height:1.8;margin-top:8px">'+(fb.corrected_version||originalText).replace(/</g,'&lt;')+'</div></div><div class="cd"><h3>Your Original Writing</h3><div style="background:#f8fafc;padding:16px;border-radius:var(--r);border:1px solid var(--b);white-space:pre-wrap;font-size:14px;line-height:1.8">'+originalText.replace(/</g,'&lt;')+'</div></div><div class="cd"><h3>How to Improve Next Time</h3>'+tipsHtml+'<div style="margin-top:16px;padding:16px;background:var(--wl);border-radius:var(--r);border-left:4px solid var(--w)"><strong>Your next focus area:</strong> '+(fb.next_focus||'Keep practising!')+'</div></div>'+nextHtml+'<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap"><button class="bt bp" onclick="openFreeWritingStudio()">Back to Free Writing Studio</button><button class="bt bg" onclick="go(\'english\')">Back to English</button></div>';
+}
+
+function renderFreeUploadFeedback(fb,title){
+  var SC=document.getElementById('SC');
+  var scoreColor=fb.overall_score>=75?'var(--g)':fb.overall_score>=50?'var(--w)':'var(--e)';
+  var categories=['grammar','spelling','structure','ideas','vocabulary','handwriting'];
+  var catLabels={grammar:'Grammar & Punctuation',spelling:'Spelling',structure:'Structure & Organisation',ideas:'Ideas & Content',vocabulary:'Vocabulary & Word Choice',handwriting:'Handwriting & Presentation'};
+  var scoreHtml=categories.map(function(cat){
+    var d=(fb.scores||{})[cat];if(!d)return '';
+    var c=d.score>=75?'var(--g)':d.score>=50?'var(--w)':'var(--e)';
+    return '<div style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center"><strong>'+catLabels[cat]+'</strong><span style="font-weight:700;color:'+c+'">'+d.score+'/100</span></div><div class="pb"><div class="pf" style="width:'+d.score+'%;background:'+c+'"></div></div><div style="font-size:13px;color:var(--t2)">'+d.comment+'</div></div>';
+  }).join('');
+  var strengthsHtml=(fb.strengths||[]).map(function(s){return '<div style="padding:8px 12px;background:var(--gl);border-radius:8px;margin-bottom:8px;font-size:14px">✓ '+s+'</div>';}).join('');
+  var errorsHtml=(fb.errors||[]).length>0?'<div class="cd"><h3 style="color:var(--e)">Errors Found ('+fb.errors.length+')</h3>'+fb.errors.map(function(e){return '<div style="background:#f8fafc;padding:12px;border-radius:8px;margin-bottom:8px;border-left:3px solid var(--e)"><div style="font-size:13px;color:var(--e);text-decoration:line-through">'+e.original+'</div><div style="font-size:13px;color:var(--g);font-weight:600;margin:4px 0">'+e.corrected+'</div><div style="font-size:12px;color:var(--t2)">Rule: '+e.rule+'</div></div>';}).join('')+'</div>':'';
+  var tipsHtml=(fb.improvement_tips||[]).map(function(t,i){return '<div style="padding:10px 12px;background:var(--pl);border-radius:8px;margin-bottom:8px;font-size:14px"><strong>Tip '+(i+1)+':</strong> '+t+'</div>';}).join('');
+  var nextHtml='';
+  if(fb.next_assignment){
+    nextHtml='<div class="cd" style="border-left:4px solid var(--v);background:var(--pl)"><h3 style="color:var(--v)">Your Next Assignment</h3><div style="font-size:15px;font-weight:600;margin:8px 0">'+fb.next_assignment.title+'</div><div class="ds">'+fb.next_assignment.instructions+'</div>'+(fb.next_assignment.tips?'<div style="margin-top:8px;font-size:13px;color:var(--t2)"><strong>Tips:</strong> '+fb.next_assignment.tips+'</div>':'')+'<div style="margin-top:12px"><button class="bt" style="background:var(--v);color:#fff" onclick="startFreeWriteFromAssignment()">Start This Assignment Now</button></div></div>';
+  }
+  SC.innerHTML='<div class="cd" style="text-align:center"><h2>AI Teacher Feedback — Uploaded Work</h2><div style="font-size:14px;color:var(--t2)">'+title+'</div><div style="font-size:56px;font-weight:700;color:'+scoreColor+';margin:16px 0">'+fb.overall_score+'/100</div><div style="background:var(--pl);padding:16px;border-radius:var(--r);font-size:15px;margin:12px 0">'+(fb.encouragement||'Well done!')+'</div></div><div class="cd"><h3>Scores by Area</h3>'+scoreHtml+'</div><div class="cd"><h3>What the AI Read (Transcription)</h3><div class="ds">This is what the AI could read from your handwriting:</div><div style="background:#f8fafc;padding:16px;border-radius:var(--r);border:1px solid var(--b);white-space:pre-wrap;font-size:14px;line-height:1.8;margin-top:8px">'+(fb.transcription||'Could not transcribe').replace(/</g,'&lt;')+'</div></div><div class="cd"><h3 style="color:var(--g)">What You Did Well</h3>'+strengthsHtml+'</div>'+errorsHtml+'<div class="cd"><h3>Corrected Version</h3><div style="background:var(--gl);padding:16px;border-radius:var(--r);border:1px solid var(--g);white-space:pre-wrap;font-size:14px;line-height:1.8;margin-top:8px">'+(fb.corrected_version||'').replace(/</g,'&lt;')+'</div></div><div class="cd"><h3>How to Improve</h3>'+tipsHtml+'<div style="margin-top:16px;padding:16px;background:var(--wl);border-radius:var(--r);border-left:4px solid var(--w)"><strong>Your next focus area:</strong> '+(fb.next_focus||'Keep practising!')+'</div></div>'+nextHtml+'<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap"><button class="bt bp" onclick="openFreeWritingStudio()">Back to Free Writing Studio</button><button class="bt bg" onclick="go(\'english\')">Back to English</button></div>';
+}
+
+async function generateFreeWritingAssignment(){
+  if(!hasAIKey()){alert('Please set your API key in the Parent Dashboard first.');return;}
+  var s=S.english.writing;
+  var lvNames={1:'beginner (Year 5-6)',2:'intermediate (Year 7-8)',3:'advanced (Year 8-9)',4:'expert (Year 9-10)',5:'master (Year 10-11)'};
+  var recentFree=S.wr?S.wr.filter(function(w){return(w.mode==='free'||w.mode==='free_upload')&&w.aiFeedback;}):[];
+  var lastFocus=recentFree.length>0?(recentFree[recentFree.length-1].aiFeedback.next_focus||'general writing'):'general writing';
+  var recentTitles=recentFree.slice(-3).map(function(w){return w.title;}).join(', ');
+  var SC=document.getElementById('SC');
+  SC.innerHTML='<div class="cd" style="text-align:center"><h2>Creating your personalised assignment...</h2><div class="ds">The AI is looking at your writing history and designing something just for you.</div><div class="pb"><div class="pf" style="width:50%"></div></div></div>';
+
+  var aiPrompt='Create a fun, engaging writing assignment for a '+lvNames[s.lv]+' student (age 10-11) who needs to practise: "'+lastFocus+'".\n'+(recentTitles?'They recently wrote about: '+recentTitles+'. Choose a DIFFERENT topic.\n':'')+'Return ONLY JSON:\n{"title":"<creative assignment title>","instructions":"<2-3 sentences describing what to write, clear and specific>","tips":"<1-2 tips to help them with their weak area: '+lastFocus+'>","type":"<story|essay|letter|diary|poem|description>","min_words":<word count target 50-200 based on level>}';
+
+  try{
+    var text=await callAI(aiPrompt,1000);
+    var match=text.match(/\{[\s\S]*\}/);
+    if(!match)throw new Error('Could not parse response.');
+    var assignment=JSON.parse(match[0]);
+    window._freeWritingNextAssignment=assignment;
+    openFreeWritingStudio();
+  }catch(e){
+    SC.innerHTML='<div class="cd"><h2>Could not generate assignment</h2><div class="ds" style="color:var(--e)">'+e.message+'</div><button class="bt bp" onclick="openFreeWritingStudio()" style="margin-top:16px">Back</button></div>';
+  }
 }
 
 function startWriting(subj,topic){openWritingCentre();}
