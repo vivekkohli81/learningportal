@@ -250,6 +250,7 @@ function doLogin(){
   if(u===DB.admin.username.toLowerCase()&&p===DB.admin.password){
     currentUser={role:'admin'};
     S=null;
+    syncAccountsToCloud();
     showAdminApp();
     return;
   }
