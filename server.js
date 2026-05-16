@@ -16,6 +16,21 @@ if (!fs.existsSync(PERF_DIR)) fs.mkdirSync(PERF_DIR, { recursive: true });
 const SYNC_DIR = path.join(__dirname, 'sync');
 if (!fs.existsSync(SYNC_DIR)) fs.mkdirSync(SYNC_DIR, { recursive: true });
 
+// === ACCOUNTS DATABASE ===
+const ACCOUNTS_FILE = path.join(__dirname, 'sync', 'accounts.json');
+
+function readAccounts() {
+  try {
+    if (fs.existsSync(ACCOUNTS_FILE)) return JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf8'));
+  } catch (e) {}
+  return null;
+}
+
+function writeAccounts(data) {
+  data.lastUpdated = new Date().toISOString();
+  fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(data, null, 2), 'utf8');
+}
+
 function getSyncPath(username) {
   const safe = username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
   return path.join(SYNC_DIR, safe + '.json');
@@ -140,6 +155,35 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: { message: e.message } }));
+    }
+    return;
+  }
+
+  // === ACCOUNTS SYNC API ===
+
+  // POST /api/accounts - upload accounts (admin + kids list)
+  if (req.url === '/api/accounts' && req.method === 'POST') {
+    try {
+      const body = JSON.parse(await readBody(req));
+      writeAccounts(body);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ success: true, kids: (body.kids || []).length }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // GET /api/accounts - download accounts
+  if (req.url === '/api/accounts' && req.method === 'GET') {
+    const data = readAccounts();
+    if (data) {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(data));
+    } else {
+      res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'No accounts synced yet' }));
     }
     return;
   }

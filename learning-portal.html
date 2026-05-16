@@ -225,8 +225,9 @@ function showLogin(){
       <div style="text-align:center;margin-top:16px">
         <button onclick="showSignup()" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:14px;text-decoration:underline">Create a New Account</button>
       </div>
-      <div style="text-align:center;margin-top:12px;font-size:12px;color:var(--t2)">
-        Admin default: admin / admin123
+      <div style="text-align:center;margin-top:12px">
+        <button onclick="syncAccountsFromCloud()" id="cloudSyncBtn" style="background:linear-gradient(135deg,#06b6d4,#8b5cf6);border:none;color:#fff;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Sync from Cloud</button>
+        <div id="syncStatus" style="font-size:12px;color:var(--t2);margin-top:6px">New device? Tap to download your accounts</div>
       </div>
     </div>
   </div>`;
@@ -280,6 +281,96 @@ function doLogin(){
   }
 
   err.textContent='Wrong username or password. Please try again.';
+}
+
+// === CLOUD ACCOUNT SYNC ===
+function syncAccountsToCloud(){
+  if(!isHosted()) return;
+  // Upload accounts list (admin + kids with credentials and basic settings, no progress — that's separate)
+  var accountData={
+    admin:{username:DB.admin.username,password:DB.admin.password},
+    kids:DB.kids.map(function(k){
+      return {name:k.name,username:k.username,password:k.password,created:k.created,year:k.year||6,settings:k.settings||{}};
+    }),
+    settings:DB.settings
+  };
+  fetch('/api/accounts',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(accountData)
+  }).then(function(r){
+    if(r.ok) console.log('Accounts synced to cloud');
+  }).catch(function(e){
+    console.log('Account sync failed:',e.message);
+  });
+}
+
+function syncAccountsFromCloud(){
+  if(!isHosted()){
+    var st=document.getElementById('syncStatus');
+    if(st) st.textContent='Cloud sync only works on the hosted version.';
+    return;
+  }
+  var btn=document.getElementById('cloudSyncBtn');
+  var st=document.getElementById('syncStatus');
+  if(btn){btn.disabled=true;btn.style.opacity='0.6';btn.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>Syncing...';}
+  if(st) st.textContent='Downloading accounts from cloud...';
+
+  fetch('/api/accounts')
+    .then(function(r){
+      if(!r.ok) throw new Error('No accounts found on cloud. Please log in on your main device first, then try again.');
+      return r.json();
+    })
+    .then(function(cloudData){
+      if(!cloudData||!cloudData.kids||cloudData.kids.length===0){
+        throw new Error('No student accounts found on cloud.');
+      }
+      // Merge cloud accounts into local DB
+      var added=0;
+      cloudData.kids.forEach(function(ck){
+        var existing=DB.kids.find(function(lk){return lk.username.toLowerCase()===ck.username.toLowerCase();});
+        if(!existing){
+          // Add this account locally with fresh progress
+          var newKid={
+            name:ck.name,
+            username:ck.username,
+            password:ck.password,
+            created:ck.created||new Date().toISOString().slice(0,10),
+            year:ck.year||6,
+            settings:ck.settings||{theme:'light',avatar:'default'},
+            progress:defaultKidProgress()
+          };
+          DB.kids.push(newKid);
+          added++;
+        }
+      });
+      // Also sync admin credentials if different
+      if(cloudData.admin){
+        DB.admin.username=cloudData.admin.username;
+        DB.admin.password=cloudData.admin.password;
+      }
+      // Sync AI settings
+      if(cloudData.settings){
+        DB.settings.provider=cloudData.settings.provider||DB.settings.provider;
+        DB.settings.model=cloudData.settings.model||DB.settings.model;
+        DB.settings.key=cloudData.settings.key||DB.settings.key;
+        DB.settings.geminiKey=cloudData.settings.geminiKey||DB.settings.geminiKey;
+      }
+      saveDB(DB);
+
+      if(st){
+        if(added>0){
+          st.innerHTML='<span style="color:var(--g);font-weight:600">Synced! '+added+' account'+(added>1?'s':'')+' downloaded. You can now log in.</span>';
+        } else {
+          st.innerHTML='<span style="color:var(--g);font-weight:600">All accounts already present. You can log in.</span>';
+        }
+      }
+      if(btn){btn.disabled=false;btn.style.opacity='1';btn.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Sync from Cloud';}
+    })
+    .catch(function(e){
+      if(st) st.innerHTML='<span style="color:var(--e)">'+e.message+'</span>';
+      if(btn){btn.disabled=false;btn.style.opacity='1';btn.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Sync from Cloud';}
+    });
 }
 
 function logout(){
@@ -356,6 +447,7 @@ function doSignup(){
   };
   DB.kids.push(newKid);
   saveDB(DB);
+  syncAccountsToCloud();
 
   // Auto-login the new user
   currentUser={role:'kid',kid:newKid};
@@ -2544,7 +2636,7 @@ function renderStudentSettings(el){
     <div class="ds">Get a key at <a href="https://console.anthropic.com/" target="_blank">console.anthropic.com</a>. Stored in your browser only.</div>
     <input type="password" class="api" id="claudeKeyInput" placeholder="sk-ant-..." value="${DB.settings.key||''}">
     <div style="margin-top:8px;display:flex;gap:8px">
-      <button class="bt bp" onclick="DB.settings.key=document.getElementById('claudeKeyInput').value.trim();saveDB(DB);alert('Claude API key saved!')">Save</button>
+      <button class="bt bp" onclick="DB.settings.key=document.getElementById('claudeKeyInput').value.trim();saveDB(DB);syncAccountsToCloud();alert('Claude API key saved!')">Save</button>
       <button class="bt" style="background:var(--b)" onclick="let e=document.getElementById('claudeKeyInput');e.type=e.type==='password'?'text':'password'">Show/Hide</button>
     </div>
   </div>
@@ -2553,7 +2645,7 @@ function renderStudentSettings(el){
     <div class="ds">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>. Stored in your browser only.</div>
     <input type="password" class="api" id="geminiKeyInput" placeholder="AIza..." value="${DB.settings.geminiKey||''}">
     <div style="margin-top:8px;display:flex;gap:8px">
-      <button class="bt bp" onclick="DB.settings.geminiKey=document.getElementById('geminiKeyInput').value.trim();saveDB(DB);alert('Gemini API key saved!')">Save</button>
+      <button class="bt bp" onclick="DB.settings.geminiKey=document.getElementById('geminiKeyInput').value.trim();saveDB(DB);syncAccountsToCloud();alert('Gemini API key saved!')">Save</button>
       <button class="bt" style="background:var(--b)" onclick="let e=document.getElementById('geminiKeyInput');e.type=e.type==='password'?'text':'password'">Show/Hide</button>
     </div>
   </div>`;
@@ -2853,6 +2945,7 @@ function doAddKid(){
   };
   DB.kids.push(kid);
   saveDB(DB);
+  syncAccountsToCloud();
   adminTab('students');
 }
 
@@ -2913,6 +3006,7 @@ function doEditKid(idx){
   }
 
   saveDB(DB);
+  syncAccountsToCloud();
   adminTab('students');
 }
 
@@ -2923,6 +3017,7 @@ function resetKidPassword(idx){
   if(!newPass||newPass.length<4){alert('Password must be at least 4 characters.');return;}
   k.password=newPass;
   saveDB(DB);
+  syncAccountsToCloud();
   alert('Password updated for '+k.name+'.');
 }
 
@@ -3060,15 +3155,15 @@ function renderAdminSettings(el){
   html+='<div class="ds">Enter your Anthropic API key. Get one at <a href="https://console.anthropic.com/" target="_blank">console.anthropic.com<\/a>. Keys are stored locally in your browser only.<\/div>';
   html+='<input type="password" class="api" id="adminClaudeKey" placeholder="sk-ant-..." value="'+(DB.settings.key||'')+'">';
   html+='<div style="margin-top:8px;display:flex;gap:8px">';
-  html+='<button class="bt bp" onclick="DB.settings.key=document.getElementById(\'adminClaudeKey\').value.trim();saveDB(DB);alert(\'Claude API key saved\')">Save<\/button>';
-  html+='<button class="bt" style="background:var(--b)" onclick="document.getElementById(\'adminClaudeKey\').value=\'\';DB.settings.key=\'\';saveDB(DB);alert(\'Key cleared\')">Clear<\/button>';
+  html+='<button class="bt bp" onclick="DB.settings.key=document.getElementById(\'adminClaudeKey\').value.trim();saveDB(DB);syncAccountsToCloud();alert(\'Claude API key saved\')">Save<\/button>';
+  html+='<button class="bt" style="background:var(--b)" onclick="document.getElementById(\'adminClaudeKey\').value=\'\';DB.settings.key=\'\';saveDB(DB);syncAccountsToCloud();alert(\'Key cleared\')">Clear<\/button>';
   html+='<\/div><\/div>';
   html+='<div class="cd"><h3>Gemini API Key<\/h3>';
   html+='<div class="ds">Enter your Google Gemini API key. Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio<\/a>. Gemini offers generous free usage.<\/div>';
   html+='<input type="password" class="api" id="adminGeminiKey" placeholder="AIza..." value="'+(DB.settings.geminiKey||'')+'">';
   html+='<div style="margin-top:8px;display:flex;gap:8px">';
-  html+='<button class="bt bp" onclick="DB.settings.geminiKey=document.getElementById(\'adminGeminiKey\').value.trim();saveDB(DB);alert(\'Gemini API key saved\')">Save<\/button>';
-  html+='<button class="bt" style="background:var(--b)" onclick="document.getElementById(\'adminGeminiKey\').value=\'\';DB.settings.geminiKey=\'\';saveDB(DB);alert(\'Key cleared\')">Clear<\/button>';
+  html+='<button class="bt bp" onclick="DB.settings.geminiKey=document.getElementById(\'adminGeminiKey\').value.trim();saveDB(DB);syncAccountsToCloud();alert(\'Gemini API key saved\')">Save<\/button>';
+  html+='<button class="bt" style="background:var(--b)" onclick="document.getElementById(\'adminGeminiKey\').value=\'\';DB.settings.geminiKey=\'\';saveDB(DB);syncAccountsToCloud();alert(\'Key cleared\')">Clear<\/button>';
   html+='<\/div><\/div>';
   html+='<div class="cd"><h3>Test Connection<\/h3>';
   html+='<div class="ds">Send a quick test message to verify your API key works.<\/div>';
