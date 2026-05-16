@@ -12,6 +12,15 @@ const indexHtml = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 const PERF_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(PERF_DIR)) fs.mkdirSync(PERF_DIR, { recursive: true });
 
+// === FULL PROGRESS SYNC DATABASE ===
+const SYNC_DIR = path.join(__dirname, 'sync');
+if (!fs.existsSync(SYNC_DIR)) fs.mkdirSync(SYNC_DIR, { recursive: true });
+
+function getSyncPath(username) {
+  const safe = username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
+  return path.join(SYNC_DIR, safe + '.json');
+}
+
 function getPerfPath(username) {
   // Sanitize username to prevent path traversal
   const safe = username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
@@ -131,6 +140,49 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: { message: e.message } }));
+    }
+    return;
+  }
+
+  // === FULL PROGRESS SYNC API (two-way cross-device sync) ===
+
+  // POST /api/sync - upload full progress
+  if (req.url === '/api/sync' && req.method === 'POST') {
+    try {
+      const body = JSON.parse(await readBody(req));
+      if (!body.username) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'username is required' }));
+        return;
+      }
+      body.lastSyncDate = new Date().toISOString();
+      const fp = getSyncPath(body.username);
+      fs.writeFileSync(fp, JSON.stringify(body, null, 2), 'utf8');
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ success: true, username: body.username, lastSyncDate: body.lastSyncDate }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // GET /api/sync/:username - download full progress
+  if (req.url.startsWith('/api/sync/') && req.method === 'GET') {
+    const username = decodeURIComponent(req.url.split('/api/sync/')[1]).split('?')[0];
+    const fp = getSyncPath(username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase());
+    try {
+      if (fs.existsSync(fp)) {
+        const data = JSON.parse(fs.readFileSync(fp, 'utf8'));
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(data));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'No sync data found', username: username }));
+      }
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
     }
     return;
   }

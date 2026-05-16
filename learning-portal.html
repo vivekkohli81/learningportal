@@ -268,6 +268,14 @@ function doLogin(){
     S.wr=S.wr||[];
     saveDB(DB);
     showKidApp();
+    // Cross-device sync: download latest progress from server and merge
+    downloadAndMergeProgress(kid,function(merged){
+      if(merged){
+        S=kid.progress; // refresh reference after merge
+        showKidApp(); // re-render with merged data
+        showSyncNotification('Progress synced from cloud');
+      }
+    });
     return;
   }
 
@@ -3493,6 +3501,147 @@ function syncPerformanceToServer(){
   }).catch(function(e){
     console.log('Performance sync failed (non-critical):',e.message);
   });
+
+  // Also upload full progress for cross-device sync
+  uploadFullProgress();
+}
+
+// === CROSS-DEVICE SYNC ===
+function uploadFullProgress(){
+  if(!isHosted()||!currentUser||currentUser.role!=='kid') return;
+  var kid=currentUser.kid;
+  var payload={
+    username:kid.username,
+    name:kid.name,
+    progress:JSON.parse(JSON.stringify(S)),
+    syncTimestamp:Date.now()
+  };
+  fetch('/api/sync',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)
+  }).then(function(r){
+    if(r.ok) console.log('Full progress uploaded for cross-device sync');
+  }).catch(function(e){
+    console.log('Full sync upload failed (non-critical):',e.message);
+  });
+}
+
+function downloadAndMergeProgress(kid,callback){
+  if(!isHosted()){callback(false);return;}
+  fetch('/api/sync/'+encodeURIComponent(kid.username))
+    .then(function(r){
+      if(!r.ok){callback(false);return r.text();}
+      return r.json();
+    })
+    .then(function(serverData){
+      if(!serverData||!serverData.progress){callback(false);return;}
+      // Merge: take the better/more advanced data from server vs local
+      var local=kid.progress;
+      var remote=serverData.progress;
+      var merged=false;
+
+      // Merge each subject
+      ['english','maths','science','ib7'].forEach(function(subj){
+        if(!remote[subj]) return;
+        if(!local[subj]) local[subj]={};
+        Object.keys(remote[subj]).forEach(function(topic){
+          var rd=remote[subj][topic];
+          var ld=local[subj][topic];
+          if(!rd) return;
+          if(!ld){
+            // Server has data we don't — take it
+            local[subj][topic]=rd;
+            merged=true;
+            return;
+          }
+          // Merge: take higher level, more ok/no, longer history
+          var localTotal=(ld.ok||0)+(ld.no||0);
+          var remoteTotal=(rd.ok||0)+(rd.no||0);
+          if(remoteTotal>localTotal){
+            // Server has more data — use server values but keep local seen list
+            ld.ok=rd.ok||0;
+            ld.no=rd.no||0;
+            ld.lv=Math.max(ld.lv||1,rd.lv||1);
+            // Merge history arrays (deduplicate by date+score)
+            if(rd.h&&rd.h.length>(ld.h||[]).length){
+              ld.h=rd.h;
+            }
+            // Merge seen question lists
+            if(rd.sn){
+              ld.sn=ld.sn||[];
+              rd.sn.forEach(function(id){if(ld.sn.indexOf(id)===-1)ld.sn.push(id);});
+            }
+            merged=true;
+          } else if(remoteTotal===localTotal&&(rd.lv||1)>(ld.lv||1)){
+            ld.lv=rd.lv;
+            merged=true;
+          }
+        });
+      });
+
+      // Merge competition prep
+      if(remote.comp){
+        if(!local.comp)local.comp={};
+        Object.keys(remote.comp).forEach(function(t){
+          var rd=remote.comp[t];
+          var ld=local.comp[t];
+          if(!ld){local.comp[t]=rd;merged=true;return;}
+          var lt=(ld.ok||0)+(ld.no||0);
+          var rt=(rd.ok||0)+(rd.no||0);
+          if(rt>lt){ld.ok=rd.ok;ld.no=rd.no;ld.lv=Math.max(ld.lv||1,rd.lv||1);if(rd.h&&rd.h.length>(ld.h||[]).length)ld.h=rd.h;if(rd.sn){ld.sn=ld.sn||[];rd.sn.forEach(function(id){if(ld.sn.indexOf(id)===-1)ld.sn.push(id);});}merged=true;}
+        });
+      }
+
+      // Merge writings
+      if(remote.wr&&remote.wr.length>(local.wr||[]).length){
+        // Server has more writings — merge by checking dates+titles
+        var localWritings=local.wr||[];
+        var localKeys=localWritings.map(function(w){return w.date+'|'+w.title;});
+        remote.wr.forEach(function(w){
+          var key=w.date+'|'+w.title;
+          if(localKeys.indexOf(key)===-1){
+            localWritings.push(w);
+            merged=true;
+          }
+        });
+        local.wr=localWritings;
+      }
+
+      // Merge overall stats
+      if(remote.total&&(remote.total>(local.total||0))){
+        local.total=remote.total;
+        merged=true;
+      }
+      if(remote.done&&remote.done.length>(local.done||[]).length){
+        local.done=remote.done;
+        merged=true;
+      }
+      // Merge streak and active days
+      if(remote.streak&&(remote.streak>(local.streak||0))){local.streak=remote.streak;merged=true;}
+      if(remote.activeDays){
+        local.activeDays=local.activeDays||[];
+        remote.activeDays.forEach(function(d){if(local.activeDays.indexOf(d)===-1)local.activeDays.push(d);});
+        merged=true;
+      }
+      // Merge AI questions
+      if(remote.aiQ){
+        local.aiQ=local.aiQ||{};
+        Object.keys(remote.aiQ).forEach(function(k){
+          if(!local.aiQ[k]){local.aiQ[k]=remote.aiQ[k];merged=true;}
+        });
+      }
+
+      if(merged){
+        saveDB(DB);
+        console.log('Progress merged from server — cross-device sync complete');
+      }
+      callback(merged);
+    })
+    .catch(function(e){
+      console.log('Download sync failed (non-critical):',e.message);
+      callback(false);
+    });
 }
 
 // =============================================
@@ -3845,6 +3994,15 @@ function exportPerformanceJSON(){
 
 // === INITIALIZE APP ===
 showLogin();
+
+// === SYNC NOTIFICATION ===
+function showSyncNotification(msg){
+  var n=document.createElement('div');
+  n.style.cssText='position:fixed;top:20px;right:20px;background:linear-gradient(135deg,#10b981,#06b6d4);color:#fff;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 15px rgba(0,0,0,0.2);display:flex;align-items:center;gap:8px;animation:slideIn 0.3s ease';
+  n.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M9 12l2 2 4-4"/></svg>'+msg;
+  document.body.appendChild(n);
+  setTimeout(function(){n.style.opacity='0';n.style.transition='opacity 0.5s';setTimeout(function(){n.remove();},500);},3000);
+}
 
 // === PWA SERVICE WORKER ===
 if('serviceWorker' in navigator){
