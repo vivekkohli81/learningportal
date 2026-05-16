@@ -2,8 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Learning Portal</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Riyansh Learning Portal</title>
+<meta name="description" content="Adaptive learning portal with AI-powered quizzes, writing feedback, and progress tracking">
+<meta name="theme-color" content="#6366f1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LearnPortal">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f0f4f8;color:#1a2a3a;line-height:1.6;min-height:100vh}
@@ -3836,5 +3845,51 @@ function exportPerformanceJSON(){
 
 // === INITIALIZE APP ===
 showLogin();
+
+// === PWA SERVICE WORKER ===
+if('serviceWorker' in navigator){
+  window.addEventListener('load',function(){
+    navigator.serviceWorker.register('/sw.js').then(function(reg){
+      console.log('SW registered',reg.scope);
+    }).catch(function(err){
+      console.log('SW registration failed',err);
+    });
+  });
+}
+
+// === PWA INSTALL PROMPT ===
+var _deferredInstallPrompt=null;
+window.addEventListener('beforeinstallprompt',function(e){
+  e.preventDefault();
+  _deferredInstallPrompt=e;
+  // Show install banner if not already installed
+  if(!window.matchMedia('(display-mode: standalone)').matches){
+    setTimeout(showInstallBanner,3000);
+  }
+});
+
+function showInstallBanner(){
+  if(!_deferredInstallPrompt)return;
+  var banner=document.createElement('div');
+  banner.id='pwaInstallBanner';
+  banner.style.cssText='position:fixed;bottom:0;left:0;right:0;background:linear-gradient(135deg,#4361ee,#8b5cf6);color:#fff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;z-index:9999;box-shadow:0 -4px 20px rgba(0,0,0,0.2);font-family:system-ui,sans-serif';
+  banner.innerHTML='<div style="flex:1"><div style="font-weight:700;font-size:15px">Install Learning Portal</div><div style="font-size:13px;opacity:0.9;margin-top:2px">Add to home screen for quick access</div></div><button onclick="installPWA()" style="background:#fff;color:#4361ee;border:none;padding:10px 20px;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap">Install</button><button onclick="dismissInstallBanner()" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer;padding:4px 8px;opacity:0.7">✕</button>';
+  document.body.appendChild(banner);
+}
+
+function installPWA(){
+  if(!_deferredInstallPrompt)return;
+  _deferredInstallPrompt.prompt();
+  _deferredInstallPrompt.userChoice.then(function(result){
+    if(result.outcome==='accepted'){console.log('PWA installed');}
+    _deferredInstallPrompt=null;
+    dismissInstallBanner();
+  });
+}
+
+function dismissInstallBanner(){
+  var b=document.getElementById('pwaInstallBanner');
+  if(b)b.remove();
+}
 
 </script></body></html>

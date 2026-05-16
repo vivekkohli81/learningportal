@@ -178,6 +178,31 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Serve PWA files
+  const STATIC_FILES = {
+    '/manifest.json': { file: 'manifest.json', type: 'application/json' },
+    '/sw.js': { file: 'sw.js', type: 'application/javascript' },
+    '/icon-192.png': { file: 'icon-192.png', type: 'image/png' },
+    '/icon-512.png': { file: 'icon-512.png', type: 'image/png' }
+  };
+
+  if (STATIC_FILES[req.url]) {
+    const sf = STATIC_FILES[req.url];
+    const filePath = path.join(__dirname, sf.file);
+    try {
+      const data = fs.readFileSync(filePath);
+      res.writeHead(200, {
+        'Content-Type': sf.type,
+        'Cache-Control': sf.type.includes('javascript') ? 'no-cache' : 'public, max-age=86400'
+      });
+      res.end(data);
+    } catch (e) {
+      res.writeHead(404);
+      res.end('Not found');
+    }
+    return;
+  }
+
   // Serve the portal
   res.writeHead(200, {
     'Content-Type': 'text/html; charset=utf-8',
