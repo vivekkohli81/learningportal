@@ -274,6 +274,24 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Serve quiz files: /quiz/YYYY-MM-DD → quiz-YYYY-MM-DD.html
+  const quizMatch = req.url.match(/^\/quiz\/(\d{4}-\d{2}-\d{2})$/);
+  if (quizMatch) {
+    const quizFile = path.join(__dirname, `quiz-${quizMatch[1]}.html`);
+    try {
+      const data = fs.readFileSync(quizFile, 'utf8');
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache'
+      });
+      res.end(data);
+    } catch (e) {
+      res.writeHead(404, { 'Content-Type': 'text/html' });
+      res.end('<h1>Quiz not found</h1><p>This quiz hasn\'t been published yet. Check back later!</p>');
+    }
+    return;
+  }
+
   // Serve PWA files
   const STATIC_FILES = {
     '/manifest.json': { file: 'manifest.json', type: 'application/json' },

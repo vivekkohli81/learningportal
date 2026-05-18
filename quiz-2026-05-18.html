@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maths Competition Prep - 18 May 2026</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #f5f7ff;
+    color: #333;
+    min-height: 100vh;
+  }
+  .header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 32px 24px;
+    text-align: center;
+  }
+  .header h1 { font-size: 26px; margin-bottom: 6px; }
+  .header p { font-size: 14px; opacity: 0.85; }
+  .container { max-width: 720px; margin: 0 auto; padding: 24px 16px 80px; }
+
+  /* Stats banner */
+  .stats {
+    background: white;
+    border-left: 4px solid #667eea;
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .stats h2 { font-size: 16px; color: #667eea; margin-bottom: 8px; }
+  .stats p { font-size: 14px; margin: 3px 0; }
+
+  /* Intro */
+  .intro {
+    font-size: 15px;
+    line-height: 1.6;
+    margin-bottom: 24px;
+    padding: 0 4px;
+  }
+  .intro strong { color: #667eea; }
+
+  /* Question card */
+  .question-card {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border: 2px solid #e8e8e8;
+    transition: border-color 0.3s;
+  }
+  .question-card.correct { border-color: #4caf50; background: #f6fff6; }
+  .question-card.incorrect { border-color: #f44336; background: #fff6f6; }
+  .question-card.unanswered { border-color: #ff9800; }
+
+  .q-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .topic-badge {
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .topic-logic { background: #e8f5e9; color: #2e7d32; }
+  .topic-number { background: #fff3e0; color: #e65100; }
+  .topic-geometry { background: #e3f2fd; color: #1565c0; }
+  .topic-combi { background: #fce4ec; color: #c62828; }
+  .difficulty { font-size: 14px; }
+
+  .q-title { font-size: 17px; font-weight: 700; margin-bottom: 10px; }
+  .q-text { font-size: 15px; line-height: 1.6; margin-bottom: 6px; }
+  .q-hint { font-size: 13px; color: #888; margin-bottom: 16px; }
+
+  /* Answer input */
+  .answer-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .answer-row label { font-weight: 600; font-size: 15px; white-space: nowrap; }
+  .answer-input {
+    flex: 1;
+    padding: 12px 16px;
+    font-size: 18px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    outline: none;
+    transition: border-color 0.2s;
+    max-width: 200px;
+  }
+  .answer-input:focus { border-color: #667eea; }
+  .answer-input:disabled { background: #f5f5f5; }
+
+  /* Result icon */
+  .result-icon {
+    font-size: 28px;
+    display: none;
+    min-width: 36px;
+    text-align: center;
+  }
+
+  /* Feedback panel */
+  .feedback {
+    display: none;
+    margin-top: 16px;
+    padding: 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .feedback.correct-fb { background: #e8f5e9; border: 1px solid #a5d6a7; }
+  .feedback.incorrect-fb { background: #ffebee; border: 1px solid #ef9a9a; }
+  .feedback h4 { margin-bottom: 8px; font-size: 15px; }
+  .feedback .solution-steps p { margin: 4px 0; }
+  .feedback .comp-tip {
+    margin-top: 10px;
+    color: #667eea;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  /* Buttons */
+  .btn-row { text-align: center; margin: 32px 0 16px; }
+  .btn {
+    padding: 16px 48px;
+    font-size: 18px;
+    font-weight: 700;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-submit {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(102,126,234,0.4);
+  }
+  .btn-submit:hover { box-shadow: 0 6px 20px rgba(102,126,234,0.5); }
+  .btn-submit:disabled {
+    background: #ccc;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+  .btn-retry {
+    background: #ff9800;
+    color: white;
+    box-shadow: 0 4px 15px rgba(255,152,0,0.3);
+    display: none;
+    margin-left: 12px;
+  }
+
+  /* Score panel */
+  .score-panel {
+    display: none;
+    background: white;
+    border-radius: 12px;
+    padding: 28px;
+    text-align: center;
+    margin: 24px 0;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  }
+  .score-panel .big-score {
+    font-size: 64px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .score-panel .score-label { font-size: 16px; color: #666; margin-bottom: 12px; }
+  .score-panel .message { font-size: 18px; margin-top: 12px; font-weight: 600; }
+  .score-panel .encouragement { font-size: 14px; color: #888; margin-top: 8px; }
+
+  /* Timer */
+  .timer {
+    text-align: center;
+    font-size: 14px;
+    color: #999;
+    margin-bottom: 20px;
+  }
+  .timer span { font-weight: 700; color: #667eea; font-size: 16px; }
+
+  /* Responsive */
+  @media (max-width: 500px) {
+    .header h1 { font-size: 20px; }
+    .container { padding: 16px 10px 80px; }
+    .question-card { padding: 16px; }
+    .answer-input { max-width: 140px; font-size: 16px; }
+    .btn { padding: 14px 32px; font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Maths Competition Prep</h1>
+  <p>Sunday, 18 May 2026 &mdash; Week 1</p>
+</div>
+
+<div class="container">
+
+  <div class="stats">
+    <h2>Your Session</h2>
+    <p><strong>Status:</strong> Week 1 &mdash; Building Your Baseline</p>
+    <p><strong>Topics:</strong> Logic, Number Theory, Geometry, Combinatorics</p>
+    <p><strong>Difficulty:</strong> 2 Easy, 2 Medium, 1 Hard</p>
+  </div>
+
+  <div class="intro">
+    Hi Riyansh! Here are 5 competition-style questions. <strong>Type your answer in each box, then click "Check My Answers" at the bottom.</strong> Take your time &mdash; no peeking! The timer is just for fun.
+  </div>
+
+  <div class="timer">Time elapsed: <span id="timer">00:00</span></div>
+
+  <!-- Q1 -->
+  <div class="question-card" id="card1">
+    <div class="q-header">
+      <span class="topic-badge topic-logic">Logic</span>
+      <span class="difficulty">&#11088; Easy</span>
+    </div>
+    <div class="q-title">Question 1: The Number Machine</div>
+    <div class="q-text">A machine takes a number, multiplies it by 3, then subtracts 5.</div>
+    <div class="q-text">If the machine outputs <strong>19</strong>, what number was put in?</div>
+    <div class="answer-row">
+      <label>Your answer:</label>
+      <input type="text" class="answer-input" id="ans1" placeholder="?" autocomplete="off">
+      <div class="result-icon" id="icon1"></div>
+    </div>
+    <div class="feedback" id="fb1">
+      <h4 id="fb1-title"></h4>
+      <div class="solution-steps">
+        <p>Let the input be <em>n</em>.</p>
+        <p>The machine does: n &times; 3 &minus; 5 = 19</p>
+        <p><strong>Step 1:</strong> Add 5 to both sides &rarr; n &times; 3 = 24</p>
+        <p><strong>Step 2:</strong> Divide by 3 &rarr; n = <strong>8</strong></p>
+        <p>Check: 8 &times; 3 &minus; 5 = 24 &minus; 5 = 19 &#10003;</p>
+      </div>
+      <div class="comp-tip">Competition tip: Work backwards from the output &mdash; reverse each operation in opposite order.</div>
+    </div>
+  </div>
+
+  <!-- Q2 -->
+  <div class="question-card" id="card2">
+    <div class="q-header">
+      <span class="topic-badge topic-number">Number Theory</span>
+      <span class="difficulty">&#11088; Easy</span>
+    </div>
+    <div class="q-title">Question 2: Digit Detective</div>
+    <div class="q-text">What is the sum of all the digits of the number <strong>1 + 2 + 3 + 4 + &hellip; + 30</strong>?</div>
+    <div class="q-hint">(Hint: First find the total, then add up its digits.)</div>
+    <div class="answer-row">
+      <label>Your answer:</label>
+      <input type="text" class="answer-input" id="ans2" placeholder="?" autocomplete="off">
+      <div class="result-icon" id="icon2"></div>
+    </div>
+    <div class="feedback" id="fb2">
+      <h4 id="fb2-title"></h4>
+      <div class="solution-steps">
+        <p>Use the formula: Sum = n &times; (n + 1) &divide; 2</p>
+        <p>Sum = 30 &times; 31 &divide; 2 = <strong>465</strong></p>
+        <p>Now add the digits of 465: 4 + 6 + 5 = <strong>15</strong></p>
+      </div>
+      <div class="comp-tip">Competition tip: The formula n(n+1)/2 is essential for summing 1 to n. Memorise it!</div>
+    </div>
+  </div>
+
+  <!-- Q3 -->
+  <div class="question-card" id="card3">
+    <div class="q-header">
+      <span class="topic-badge topic-geometry">Geometry</span>
+      <span class="difficulty">&#11088;&#11088; Medium</span>
+    </div>
+    <div class="q-title">Question 3: The Garden Path</div>
+    <div class="q-text">A rectangular garden is 12 m long and 5 m wide. A path of width 1 m runs around the <strong>outside</strong> of the garden.</div>
+    <div class="q-text">What is the area of the path (in m&sup2;)?</div>
+    <div class="q-hint">(Hint: Think about the bigger rectangle that includes the path.)</div>
+    <div class="answer-row">
+      <label>Your answer:</label>
+      <input type="text" class="answer-input" id="ans3" placeholder="?" autocomplete="off">
+      <div class="result-icon" id="icon3"></div>
+    </div>
+    <div class="feedback" id="fb3">
+      <h4 id="fb3-title"></h4>
+      <div class="solution-steps">
+        <p>The path adds 1 m to <strong>each side</strong>, so:</p>
+        <p>Outer length = 12 + 1 + 1 = <strong>14 m</strong></p>
+        <p>Outer width = 5 + 1 + 1 = <strong>7 m</strong></p>
+        <p>Outer area = 14 &times; 7 = 98 m&sup2;</p>
+        <p>Garden area = 12 &times; 5 = 60 m&sup2;</p>
+        <p>Path area = 98 &minus; 60 = <strong>40 m&sup2;</strong></p>
+      </div>
+      <div class="comp-tip">Competition tip: Border/path area = Outer area &minus; Inner area. Always add width to BOTH sides.</div>
+    </div>
+  </div>
+
+  <!-- Q4 -->
+  <div class="question-card" id="card4">
+    <div class="q-header">
+      <span class="topic-badge topic-combi">Combinatorics</span>
+      <span class="difficulty">&#11088;&#11088; Medium</span>
+    </div>
+    <div class="q-title">Question 4: The Handshake Problem</div>
+    <div class="q-text">There are <strong>6 people</strong> at a party. If every person shakes hands with every other person exactly once, how many handshakes happen in total?</div>
+    <div class="answer-row">
+      <label>Your answer:</label>
+      <input type="text" class="answer-input" id="ans4" placeholder="?" autocomplete="off">
+      <div class="result-icon" id="icon4"></div>
+    </div>
+    <div class="feedback" id="fb4">
+      <h4 id="fb4-title"></h4>
+      <div class="solution-steps">
+        <p>Person 1 shakes with 5 others.</p>
+        <p>Person 2 shakes with 4 <em>new</em> people (already shook with Person 1).</p>
+        <p>Person 3 &rarr; 3 new, Person 4 &rarr; 2 new, Person 5 &rarr; 1 new.</p>
+        <p>Total = 5 + 4 + 3 + 2 + 1 = <strong>15</strong></p>
+        <p><strong>Formula:</strong> n(n&minus;1) &divide; 2 = 6 &times; 5 &divide; 2 = 15</p>
+      </div>
+      <div class="comp-tip">Competition tip: "How many handshakes/lines between n points?" = n(n&minus;1)/2. Classic pattern!</div>
+    </div>
+  </div>
+
+  <!-- Q5 -->
+  <div class="question-card" id="card5">
+    <div class="q-header">
+      <span class="topic-badge topic-logic">Logic</span>
+      <span class="difficulty">&#11088;&#11088;&#11088; Hard</span>
+    </div>
+    <div class="q-title">Question 5: The Magic Square Challenge</div>
+    <div class="q-text">Place the numbers <strong>1, 2, 3, 4, 5, 6, 7, 8, 9</strong> into a 3&times;3 grid so that every row, every column, and both diagonals add up to the <strong>same total</strong>.</div>
+    <div class="q-text">What must that total be?</div>
+    <div class="q-hint">(Bonus challenge: Can you fill in the whole grid?)</div>
+    <div class="answer-row">
+      <label>Your answer:</label>
+      <input type="text" class="answer-input" id="ans5" placeholder="?" autocomplete="off">
+      <div class="result-icon" id="icon5"></div>
+    </div>
+    <div class="feedback" id="fb5">
+      <h4 id="fb5-title"></h4>
+      <div class="solution-steps">
+        <p>Sum of 1 to 9 = 1+2+3+4+5+6+7+8+9 = <strong>45</strong></p>
+        <p>There are 3 rows, each with the same total.</p>
+        <p>Each row = 45 &divide; 3 = <strong>15</strong></p>
+        <p style="margin-top:8px"><strong>One valid grid:</strong></p>
+        <table style="border-collapse:collapse;margin:6px 0">
+          <tr><td style="border:2px solid #667eea;width:36px;height:36px;text-align:center;font-weight:700">2</td><td style="border:2px solid #667eea;width:36px;height:36px;text-align:center;font-weight:700">7</td><td style="border:2px solid #667eea;width:36px;height:36px;text-align:center;font-weight:700">6</td></tr>
+          <tr><td style="border:2px solid #667eea;width:36px;height:36px;text-align:center;font-weight:700">9</td><td style="border:2px solid #667eea;width:36px;height:36px;text-align:center;font-weight:700">5</td><td style="border:2px solid #667eea;width:36px;height:36px;text-align:center;font-weight:700">1</td></tr>
+          <tr><td style="border:2px solid #667eea;width:36px;height:36px;text-align:center;font-weight:700">4</td><td style="border:2px solid #667eea;width:36px;height:36px;text-align:center;font-weight:700">3</td><td style="border:2px solid #667eea;width:36px;height:36px;text-align:center;font-weight:700">8</td></tr>
+        </table>
+      </div>
+      <div class="comp-tip">Competition tip: The centre of a 3&times;3 magic square with 1&ndash;9 is always 5 (the middle value).</div>
+    </div>
+  </div>
+
+  <!-- Score panel -->
+  <div class="score-panel" id="scorePanel">
+    <div class="score-label">YOUR SCORE</div>
+    <div class="big-score" id="scoreNum"></div>
+    <div class="message" id="scoreMsg"></div>
+    <div class="encouragement" id="scoreEnc"></div>
+  </div>
+
+  <!-- Buttons -->
+  <div class="btn-row">
+    <button class="btn btn-submit" id="submitBtn" onclick="checkAnswers()">Check My Answers</button>
+    <button class="btn btn-retry" id="retryBtn" onclick="retryQuiz()">Try Again</button>
+  </div>
+
+</div>
+
+<script>
+  // Correct answers
+  var answers = { ans1: 8, ans2: 15, ans3: 40, ans4: 15, ans5: 15 };
+  var submitted = false;
+
+  // Timer
+  var seconds = 0;
+  var timerInterval = setInterval(function() {
+    seconds++;
+    var m = String(Math.floor(seconds / 60)).padStart(2, '0');
+    var s = String(seconds % 60).padStart(2, '0');
+    document.getElementById('timer').textContent = m + ':' + s;
+  }, 1000);
+
+  // Allow Enter key to move to next input
+  var inputs = document.querySelectorAll('.answer-input');
+  inputs.forEach(function(inp, idx) {
+    inp.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (idx < inputs.length - 1) {
+          inputs[idx + 1].focus();
+        } else {
+          checkAnswers();
+        }
+      }
+    });
+  });
+
+  function checkAnswers() {
+    if (submitted) return;
+
+    // Check all fields have something
+    var allFilled = true;
+    for (var key in answers) {
+      var val = document.getElementById(key).value.trim();
+      if (val === '') {
+        allFilled = false;
+        document.getElementById('card' + key.replace('ans', '')).classList.add('unanswered');
+      }
+    }
+    if (!allFilled) {
+      alert('Please try all 5 questions before checking! Give each one your best shot.');
+      return;
+    }
+
+    submitted = true;
+    clearInterval(timerInterval);
+
+    var score = 0;
+    for (var key in answers) {
+      var num = key.replace('ans', '');
+      var userVal = document.getElementById(key).value.trim();
+      var card = document.getElementById('card' + num);
+      var icon = document.getElementById('icon' + num);
+      var fb = document.getElementById('fb' + num);
+      var fbTitle = document.getElementById('fb' + num + '-title');
+      var input = document.getElementById(key);
+
+      card.classList.remove('unanswered');
+      icon.style.display = 'inline-block';
+      fb.style.display = 'block';
+      input.disabled = true;
+
+      if (parseInt(userVal) === answers[key]) {
+        score++;
+        card.classList.add('correct');
+        icon.textContent = '✅';
+        fb.classList.add('correct-fb');
+        fbTitle.textContent = '✅ Correct! Well done!';
+        fbTitle.style.color = '#2e7d32';
+      } else {
+        card.classList.add('incorrect');
+        icon.textContent = '❌';
+        fb.classList.add('incorrect-fb');
+        fbTitle.textContent = '❌ Not quite — the answer is ' + answers[key] + '. Here’s how:';
+        fbTitle.style.color = '#c62828';
+      }
+    }
+
+    // Show score
+    var panel = document.getElementById('scorePanel');
+    panel.style.display = 'block';
+    document.getElementById('scoreNum').textContent = score + ' / 5';
+
+    var messages = [
+      { min: 5, msg: 'PERFECT SCORE!', enc: 'You nailed every single one. Incredible!' },
+      { min: 4, msg: 'Excellent work!', enc: 'So close to perfect. Review the one you missed and you\'ll get it next time.' },
+      { min: 3, msg: 'Great effort!', enc: 'You\'re getting the hang of competition maths. Keep practising!' },
+      { min: 2, msg: 'Good start!', enc: 'Read through the solutions carefully — you\'ll spot the patterns.' },
+      { min: 0, msg: 'Keep going!', enc: 'Competition maths is tough at first. Every attempt makes you stronger.' }
+    ];
+    for (var i = 0; i < messages.length; i++) {
+      if (score >= messages[i].min) {
+        document.getElementById('scoreMsg').textContent = messages[i].msg;
+        document.getElementById('scoreEnc').textContent = messages[i].enc;
+        break;
+      }
+    }
+
+    // Show time taken
+    var m = Math.floor(seconds / 60);
+    var s = seconds % 60;
+    var timeStr = m > 0 ? m + ' min ' + s + ' sec' : s + ' seconds';
+    document.getElementById('scoreEnc').textContent += ' (Time: ' + timeStr + ')';
+
+    document.getElementById('submitBtn').disabled = true;
+    document.getElementById('retryBtn').style.display = 'inline-block';
+
+    panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function retryQuiz() {
+    submitted = false;
+    seconds = 0;
+    timerInterval = setInterval(function() {
+      seconds++;
+      var m = String(Math.floor(seconds / 60)).padStart(2, '0');
+      var s = String(seconds % 60).padStart(2, '0');
+      document.getElementById('timer').textContent = m + ':' + s;
+    }, 1000);
+
+    for (var key in answers) {
+      var num = key.replace('ans', '');
+      var input = document.getElementById(key);
+      input.value = '';
+      input.disabled = false;
+      var card = document.getElementById('card' + num);
+      card.classList.remove('correct', 'incorrect', 'unanswered');
+      document.getElementById('icon' + num).style.display = 'none';
+      var fb = document.getElementById('fb' + num);
+      fb.style.display = 'none';
+      fb.classList.remove('correct-fb', 'incorrect-fb');
+    }
+
+    document.getElementById('scorePanel').style.display = 'none';
+    document.getElementById('submitBtn').disabled = false;
+    document.getElementById('retryBtn').style.display = 'none';
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    document.getElementById('ans1').focus();
+  }
+</script>
+
+</body>
+</html>
