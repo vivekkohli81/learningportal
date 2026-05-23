@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maths Challenge Quiz - 23 May 2026</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;color:#1e293b}
+.container{max-width:640px;margin:0 auto;padding:16px}
+.header{text-align:center;color:#fff;padding:24px 0 16px}
+.header h1{font-size:26px;margin-bottom:4px}
+.header p{opacity:0.85;font-size:14px}
+.progress-bar{background:rgba(255,255,255,0.2);border-radius:20px;height:8px;margin:16px 0;overflow:hidden}
+.progress-fill{background:#fbbf24;height:100%;border-radius:20px;transition:width 0.4s ease}
+.timer{color:#fbbf24;font-size:15px;font-weight:700;text-align:center;margin-bottom:12px}
+.q-card{background:#fff;border-radius:16px;padding:24px;margin-bottom:16px;box-shadow:0 4px 20px rgba(0,0,0,0.15);display:none}
+.q-card.active{display:block;animation:fadeIn 0.3s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.q-num{display:inline-block;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:4px 14px;border-radius:20px;font-size:13px;font-weight:700;margin-bottom:12px}
+.q-diff{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;margin-left:8px}
+.q-diff.easy{background:#d1fae5;color:#065f46}
+.q-diff.medium{background:#fef3c7;color:#92400e}
+.q-diff.hard{background:#fee2e2;color:#991b1b}
+.q-title{font-size:18px;font-weight:700;color:#4338ca;margin-bottom:8px}
+.q-story{font-size:15px;line-height:1.7;color:#334155;margin-bottom:16px;background:#f8fafc;padding:14px;border-radius:10px;border-left:4px solid #667eea}
+.q-ask{font-size:15px;font-weight:600;color:#1e293b;margin-bottom:14px}
+.options{display:flex;flex-direction:column;gap:10px}
+.opt{padding:14px 16px;border:2px solid #e2e8f0;border-radius:12px;cursor:pointer;font-size:15px;transition:all 0.2s;display:flex;align-items:center;gap:10px}
+.opt:hover{border-color:#667eea;background:#f0f0ff}
+.opt.selected{border-color:#667eea;background:#eef2ff;font-weight:600}
+.opt.correct{border-color:#16a34a;background:#f0fdf4;color:#16a34a}
+.opt.wrong{border-color:#dc2626;background:#fef2f2;color:#dc2626}
+.opt-letter{width:28px;height:28px;border-radius:50%;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0}
+.input-answer{width:100%;padding:14px;border:2px solid #e2e8f0;border-radius:12px;font-size:16px;text-align:center;font-family:inherit}
+.input-answer:focus{outline:none;border-color:#667eea}
+.nav-btn{padding:14px 28px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all 0.2s}
+.nav-btn.primary{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff}
+.nav-btn.primary:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(102,126,234,0.4)}
+.nav-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
+.btn-row{display:flex;justify-content:flex-end;margin-top:16px;gap:10px}
+.results-card{background:#fff;border-radius:16px;padding:32px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.15);display:none}
+.results-card.active{display:block;animation:fadeIn 0.4s ease}
+.score-circle{width:120px;height:120px;border-radius:50%;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:36px;font-weight:800;color:#fff}
+.score-circle.great{background:linear-gradient(135deg,#16a34a,#22c55e)}
+.score-circle.ok{background:linear-gradient(135deg,#f59e0b,#fbbf24)}
+.score-circle.try{background:linear-gradient(135deg,#ef4444,#f87171)}
+.results-msg{font-size:18px;font-weight:600;margin-bottom:8px}
+.results-sub{color:#64748b;font-size:14px;margin-bottom:20px}
+.review{text-align:left;margin-top:20px}
+.review-item{padding:14px;border-radius:10px;margin-bottom:10px;font-size:14px;line-height:1.6}
+.review-item.right{background:#f0fdf4;border-left:4px solid #16a34a}
+.review-item.wrong{background:#fef2f2;border-left:4px solid #ef4444}
+.review-item strong{display:block;margin-bottom:4px}
+.explain{color:#64748b;font-size:13px;margin-top:6px;font-style:italic}
+.confetti{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999}
+.hint-btn{background:none;border:1px dashed #94a3b8;color:#64748b;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;margin-top:8px}
+.hint-text{font-size:13px;color:#667eea;margin-top:8px;font-style:italic;display:none}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>Maths Challenge Quiz</h1>
+    <p>23 May 2026 — 5 Questions — Good luck!</p>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="progFill" style="width:20%"></div></div>
+  <div class="timer" id="timer">Time: 0:00</div>
+
+  <!-- Q1: Patterns (Easy) -->
+  <div class="q-card active" id="q1">
+    <span class="q-num">Q1 of 5</span><span class="q-diff easy">Easy</span>
+    <h3 class="q-title">The Mystery Sequence</h3>
+    <div class="q-story">Professor Pattern has written numbers on the whiteboard:<br><br>
+    <strong style="font-size:20px;color:#4338ca">2, &nbsp; 6, &nbsp; 18, &nbsp; 54, &nbsp; ?</strong><br><br>
+    "Each number follows the same rule," she says. "What comes next?"</div>
+    <p class="q-ask">What is the next number in the sequence?</p>
+    <div class="options">
+      <div class="opt" onclick="pick(1,this,'A')"><span class="opt-letter">A</span>108</div>
+      <div class="opt" onclick="pick(1,this,'B')"><span class="opt-letter">B</span>162</div>
+      <div class="opt" onclick="pick(1,this,'C')"><span class="opt-letter">C</span>150</div>
+      <div class="opt" onclick="pick(1,this,'D')"><span class="opt-letter">D</span>216</div>
+    </div>
+    <button class="hint-btn" onclick="showHint(1)">Need a hint?</button>
+    <p class="hint-text" id="hint1">Look at how you get from one number to the next. Try dividing each number by the one before it.</p>
+    <div class="btn-row"><button class="nav-btn primary" onclick="next(1)" id="btn1" disabled>Next →</button></div>
+  </div>
+
+  <!-- Q2: Fractions (Easy) -->
+  <div class="q-card" id="q2">
+    <span class="q-num">Q2 of 5</span><span class="q-diff easy">Easy</span>
+    <h3 class="q-title">Pizza Party</h3>
+    <div class="q-story">A pizza is cut into <strong>8 equal slices</strong>.<br><br>
+    Riyansh eats <strong>3 slices</strong>. His friend eats <strong>1/4 of the whole pizza</strong>.<br><br>
+    How many slices are left on the plate?</div>
+    <p class="q-ask">How many slices remain?</p>
+    <div class="options">
+      <div class="opt" onclick="pick(2,this,'A')"><span class="opt-letter">A</span>2 slices</div>
+      <div class="opt" onclick="pick(2,this,'B')"><span class="opt-letter">B</span>3 slices</div>
+      <div class="opt" onclick="pick(2,this,'C')"><span class="opt-letter">C</span>4 slices</div>
+      <div class="opt" onclick="pick(2,this,'D')"><span class="opt-letter">D</span>1 slice</div>
+    </div>
+    <button class="hint-btn" onclick="showHint(2)">Need a hint?</button>
+    <p class="hint-text" id="hint2">First, figure out how many slices = 1/4 of 8. Then subtract both amounts from 8.</p>
+    <div class="btn-row"><button class="nav-btn primary" onclick="next(2)" id="btn2" disabled>Next →</button></div>
+  </div>
+
+  <!-- Q3: Speed/Distance (Medium) -->
+  <div class="q-card" id="q3">
+    <span class="q-num">Q3 of 5</span><span class="q-diff medium">Medium</span>
+    <h3 class="q-title">The Race</h3>
+    <div class="q-story">A <strong>train</strong> travels <strong>120 km in 2 hours</strong>.<br><br>
+    A <strong>car</strong> travels <strong>80 km in 1 hour</strong>.<br><br>
+    How much faster is the car than the train, in km per hour?</div>
+    <p class="q-ask">What is the speed difference (in km/h)?</p>
+    <div class="options">
+      <div class="opt" onclick="pick(3,this,'A')"><span class="opt-letter">A</span>40 km/h</div>
+      <div class="opt" onclick="pick(3,this,'B')"><span class="opt-letter">B</span>20 km/h</div>
+      <div class="opt" onclick="pick(3,this,'C')"><span class="opt-letter">C</span>10 km/h</div>
+      <div class="opt" onclick="pick(3,this,'D')"><span class="opt-letter">D</span>60 km/h</div>
+    </div>
+    <button class="hint-btn" onclick="showHint(3)">Need a hint?</button>
+    <p class="hint-text" id="hint3">Speed = Distance ÷ Time. Calculate the train's speed first, then compare.</p>
+    <div class="btn-row"><button class="nav-btn primary" onclick="next(3)" id="btn3" disabled>Next →</button></div>
+  </div>
+
+  <!-- Q4: Probability (Medium) -->
+  <div class="q-card" id="q4">
+    <span class="q-num">Q4 of 5</span><span class="q-diff medium">Medium</span>
+    <h3 class="q-title">Lucky Dip</h3>
+    <div class="q-story">A bag contains marbles:<br>
+    🔴 <strong>3 red</strong> &nbsp; 🔵 <strong>4 blue</strong> &nbsp; 🟢 <strong>5 green</strong><br><br>
+    You reach in without looking and pick <strong>one marble</strong>.<br><br>
+    What is the probability of picking a <strong>blue</strong> marble? Give your answer as a simplified fraction.</div>
+    <p class="q-ask">Probability of picking blue = ?</p>
+    <div class="options">
+      <div class="opt" onclick="pick(4,this,'A')"><span class="opt-letter">A</span>1/4</div>
+      <div class="opt" onclick="pick(4,this,'B')"><span class="opt-letter">B</span>4/12</div>
+      <div class="opt" onclick="pick(4,this,'C')"><span class="opt-letter">C</span>1/3</div>
+      <div class="opt" onclick="pick(4,this,'D')"><span class="opt-letter">D</span>1/2</div>
+    </div>
+    <button class="hint-btn" onclick="showHint(4)">Need a hint?</button>
+    <p class="hint-text" id="hint4">Probability = favourable outcomes ÷ total outcomes. Count all the marbles first. Then simplify the fraction.</p>
+    <div class="btn-row"><button class="nav-btn primary" onclick="next(4)" id="btn4" disabled>Next →</button></div>
+  </div>
+
+  <!-- Q5: Algebra/Logic (Hard) -->
+  <div class="q-card" id="q5">
+    <span class="q-num">Q5 of 5</span><span class="q-diff hard">Hard</span>
+    <h3 class="q-title">The Secret Number</h3>
+    <div class="q-story">A wizard says:<br><br>
+    <em>"I think of a number. I <strong>double</strong> it. Then I <strong>add 7</strong>. My answer is <strong>25</strong>."</em><br><br>
+    Can you work backwards to find the wizard's secret number?</div>
+    <p class="q-ask">What is the wizard's secret number?</p>
+    <div class="options">
+      <div class="opt" onclick="pick(5,this,'A')"><span class="opt-letter">A</span>8</div>
+      <div class="opt" onclick="pick(5,this,'B')"><span class="opt-letter">B</span>9</div>
+      <div class="opt" onclick="pick(5,this,'C')"><span class="opt-letter">C</span>12</div>
+      <div class="opt" onclick="pick(5,this,'D')"><span class="opt-letter">D</span>16</div>
+    </div>
+    <button class="hint-btn" onclick="showHint(5)">Need a hint?</button>
+    <p class="hint-text" id="hint5">Work backwards: start with 25, undo "add 7" (subtract 7), then undo "double" (divide by 2).</p>
+    <div class="btn-row"><button class="nav-btn primary" onclick="submitQuiz()" id="btn5" disabled>Submit Quiz!</button></div>
+  </div>
+
+  <!-- Results -->
+  <div class="results-card" id="results"></div>
+</div>
+
+<canvas class="confetti" id="confettiCanvas"></canvas>
+
+<script>
+var answers = {1:'B', 2:'B', 3:'B', 4:'C', 5:'B'};
+var correctAnswerText = {1:'162', 2:'3 slices', 3:'20 km/h', 4:'1/3', 5:'9'};
+var explanations = {
+  1: 'Each number is multiplied by 3: 2×3=6, 6×3=18, 18×3=54, 54×3=162. This is called a geometric sequence.',
+  2: '1/4 of 8 slices = 2 slices. Riyansh ate 3, friend ate 2. Total eaten = 5. Left = 8 - 5 = 3 slices.',
+  3: 'Train speed = 120÷2 = 60 km/h. Car speed = 80÷1 = 80 km/h. Difference = 80 - 60 = 20 km/h.',
+  4: 'Total marbles = 3+4+5 = 12. Blue = 4. Probability = 4/12 = 1/3 (divide top and bottom by 4).',
+  5: 'Work backwards: 25 - 7 = 18, then 18 ÷ 2 = 9. Check: 9×2+7 = 25 ✓'
+};
+var topics = {1:'Patterns', 2:'Fractions', 3:'Speed & Distance', 4:'Probability', 5:'Algebra'};
+var difficulty = {1:'Easy', 2:'Easy', 3:'Medium', 4:'Medium', 5:'Hard'};
+var picked = {};
+var startTime = Date.now();
+var timerInterval;
+
+// Timer
+function updateTimer() {
+  var s = Math.floor((Date.now() - startTime) / 1000);
+  var m = Math.floor(s / 60);
+  s = s % 60;
+  document.getElementById('timer').textContent = 'Time: ' + m + ':' + (s < 10 ? '0' : '') + s;
+}
+timerInterval = setInterval(updateTimer, 1000);
+
+function pick(q, el, letter) {
+  if (picked[q]) return;
+  picked[q] = letter;
+  var opts = el.parentElement.querySelectorAll('.opt');
+  for (var i = 0; i < opts.length; i++) opts[i].classList.remove('selected');
+  el.classList.add('selected');
+  document.getElementById('btn' + q).disabled = false;
+}
+
+function showHint(q) {
+  document.getElementById('hint' + q).style.display = 'block';
+}
+
+function next(q) {
+  if (!picked[q]) return;
+  document.getElementById('q' + q).classList.remove('active');
+  document.getElementById('q' + (q + 1)).classList.add('active');
+  document.getElementById('progFill').style.width = ((q + 1) * 20) + '%';
+}
+
+function submitQuiz() {
+  if (!picked[5]) return;
+  clearInterval(timerInterval);
+  var elapsed = Math.floor((Date.now() - startTime) / 1000);
+  var score = 0;
+  var details = [];
+  var weakAreas = [];
+
+  for (var q = 1; q <= 5; q++) {
+    var correct = picked[q] === answers[q];
+    if (correct) score++;
+    else weakAreas.push(topics[q]);
+    details.push({
+      question: q,
+      topic: topics[q],
+      difficulty: difficulty[q],
+      yourAnswer: picked[q],
+      correctAnswer: answers[q],
+      correct: correct
+    });
+  }
+
+  // Show results
+  document.getElementById('q5').classList.remove('active');
+  document.getElementById('progFill').style.width = '100%';
+
+  var grade = score >= 4 ? 'great' : score >= 3 ? 'ok' : 'try';
+  var msg = score === 5 ? 'PERFECT SCORE!' : score >= 4 ? 'Excellent work!' : score >= 3 ? 'Good effort!' : score >= 2 ? 'Keep practising!' : 'Don\'t give up!';
+  var emoji = score >= 4 ? '🏆' : score >= 3 ? '⭐' : '💪';
+
+  var html = '<div class="score-circle ' + grade + '">' + score + '/5</div>';
+  html += '<div class="results-msg">' + emoji + ' ' + msg + '</div>';
+  html += '<div class="results-sub">Time: ' + Math.floor(elapsed/60) + 'm ' + (elapsed%60) + 's</div>';
+  html += '<div class="review">';
+
+  for (var i = 0; i < details.length; i++) {
+    var d = details[i];
+    var cls = d.correct ? 'right' : 'wrong';
+    var icon = d.correct ? '✅' : '❌';
+    html += '<div class="review-item ' + cls + '">';
+    html += '<strong>' + icon + ' Q' + d.question + ': ' + topics[d.question] + ' (' + d.difficulty + ')</strong>';
+    if (!d.correct) {
+      html += 'Your answer: ' + d.yourAnswer + ' — Correct: ' + correctAnswerText[d.question];
+    }
+    html += '<div class="explain">' + explanations[d.question] + '</div>';
+    html += '</div>';
+  }
+  html += '</div>';
+
+  var rc = document.getElementById('results');
+  rc.innerHTML = html;
+  rc.classList.add('active');
+
+  if (score >= 4) launchConfetti();
+
+  // Auto-submit results to server
+  var payload = {
+    username: 'riyansh',
+    quizId: 'quiz-2026-05-23',
+    score: score,
+    total: 5,
+    timeTaken: elapsed,
+    questions: details,
+    topics: Object.values(topics),
+    weakAreas: weakAreas
+  };
+
+  fetch('/api/quiz-results', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(r) { return r.json(); })
+    .then(function(d) { console.log('Results saved:', d); })
+    .catch(function(e) { console.log('Save error:', e); });
+
+  // Backup: email results to dad
+  var subject = 'Quiz Result: ' + score + '/5 - Maths Challenge 23 May 2026';
+  var body = 'Riyansh scored ' + score + '/5 on the Maths Challenge Quiz (23 May 2026).%0A%0A';
+  body += 'Time taken: ' + Math.floor(elapsed/60) + 'm ' + (elapsed%60) + 's%0A%0A';
+  for (var j = 0; j < details.length; j++) {
+    var dd = details[j];
+    body += 'Q' + dd.question + ' (' + topics[dd.question] + '): ' + (dd.correct ? 'CORRECT' : 'WRONG (answered ' + dd.yourAnswer + ', correct: ' + correctAnswerText[dd.question] + ')') + '%0A';
+  }
+  if (weakAreas.length > 0) body += '%0AWeak areas: ' + weakAreas.join(', ');
+
+  var mailLink = document.createElement('a');
+  mailLink.href = 'mailto:vivekkohli81@gmail.com?subject=' + encodeURIComponent(subject) + '&body=' + body;
+  mailLink.click();
+}
+
+function launchConfetti() {
+  var canvas = document.getElementById('confettiCanvas');
+  var ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  var pieces = [];
+  var colors = ['#667eea','#764ba2','#fbbf24','#ef4444','#22c55e','#06b6d4','#f97316'];
+  for (var i = 0; i < 120; i++) {
+    pieces.push({x:Math.random()*canvas.width, y:-20-Math.random()*200, w:6+Math.random()*6, h:12+Math.random()*8, color:colors[Math.floor(Math.random()*colors.length)], vy:2+Math.random()*3, vx:-1+Math.random()*2, rot:Math.random()*360, rv:-3+Math.random()*6});
+  }
+  var frame = 0;
+  function draw() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    for (var i = 0; i < pieces.length; i++) {
+      var p = pieces[i]; p.y+=p.vy; p.x+=p.vx; p.rot+=p.rv;
+      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot*Math.PI/180);
+      ctx.fillStyle=p.color; ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h); ctx.restore();
+    }
+    if (++frame < 180) requestAnimationFrame(draw);
+    else ctx.clearRect(0,0,canvas.width,canvas.height);
+  }
+  draw();
+}
+</script>
+</body>
+</html>
