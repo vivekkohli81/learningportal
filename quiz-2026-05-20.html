@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maths Challenge Quiz - 20 May 2026</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #f5f7ff;
+    color: #333;
+    min-height: 100vh;
+  }
+  .header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 28px 20px;
+    text-align: center;
+  }
+  .header h1 { font-size: 24px; margin-bottom: 6px; }
+  .header p { font-size: 14px; opacity: 0.85; }
+  .timer-bar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .timer-bar .timer {
+    background: rgba(255,255,255,0.2);
+    padding: 5px 16px;
+    border-radius: 20px;
+    font-size: 1.1em;
+    font-weight: 600;
+  }
+  .progress-wrap {
+    background: rgba(255,255,255,0.25);
+    border-radius: 20px;
+    height: 10px;
+    width: 200px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    background: #FFD700;
+    height: 100%;
+    border-radius: 20px;
+    transition: width 0.4s ease;
+    width: 0%;
+  }
+  .container { max-width: 700px; margin: 0 auto; padding: 20px 16px 80px; }
+
+  .question-card {
+    background: white;
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 18px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    transition: border-color 0.3s;
+    border: 2px solid transparent;
+  }
+  .question-card.correct { border-color: #27ae60; background: #f0faf4; }
+  .question-card.wrong { border-color: #e74c3c; background: #fdf0ef; }
+  .card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .badge {
+    display: inline-block;
+    padding: 3px 12px;
+    border-radius: 20px;
+    font-size: 0.75em;
+    font-weight: 600;
+    color: white;
+  }
+  .badge-logic { background: #e74c3c; }
+  .badge-number { background: #e67e22; }
+  .badge-geometry { background: #2ecc71; }
+  .badge-combinatorics { background: #9b59b6; }
+  .diff { font-size: 0.8em; color: #999; font-weight: 600; }
+  .diff .s { color: #f1c40f; }
+  .q-title { font-size: 1.15em; font-weight: 700; color: #2c3e50; margin-bottom: 10px; }
+  .q-text { font-size: 1em; color: #444; line-height: 1.7; margin-bottom: 6px; }
+  .hint { font-size: 0.85em; color: #999; font-style: italic; margin-bottom: 10px; }
+  .ans-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .ans-row label { font-weight: 600; color: #555; }
+  .ans-input {
+    border: 2px solid #ddd;
+    border-radius: 10px;
+    padding: 9px 14px;
+    font-size: 1.05em;
+    width: 140px;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.3s;
+  }
+  .ans-input:focus { border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,0.12); }
+  .ans-input.ok { border-color: #27ae60; background: #eafaf1; }
+  .ans-input.no { border-color: #e74c3c; background: #fdedec; }
+  .icon { display: none; font-size: 1.4em; }
+
+  .explain {
+    display: none;
+    background: #f8f9ff;
+    border-left: 4px solid #667eea;
+    border-radius: 0 10px 10px 0;
+    padding: 14px 18px;
+    margin-top: 14px;
+  }
+  .explain h4 { color: #667eea; margin-bottom: 6px; font-size: 0.95em; }
+  .explain p { color: #444; line-height: 1.7; font-size: 0.9em; }
+  .explain .ca { font-weight: 700; color: #27ae60; font-size: 1em; margin-top: 6px; }
+
+  .submit-area { text-align: center; margin: 28px 0; }
+  .submit-btn {
+    background: linear-gradient(135deg, #FFD700, #FFA500);
+    color: #333;
+    border: none;
+    padding: 14px 45px;
+    font-size: 1.2em;
+    font-weight: 700;
+    border-radius: 50px;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(255,165,0,0.4);
+    transition: transform 0.2s;
+  }
+  .submit-btn:hover { transform: scale(1.04); }
+  .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  .results {
+    display: none;
+    background: white;
+    border-radius: 14px;
+    padding: 28px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    text-align: center;
+  }
+  .score-big { font-size: 3.5em; font-weight: 800; margin: 8px 0; }
+  .score-big.green { color: #27ae60; }
+  .score-big.orange { color: #f39c12; }
+  .score-big.red { color: #e74c3c; }
+  .score-msg { font-size: 1.1em; color: #444; margin: 12px 0 20px; line-height: 1.6; }
+  .auto-saved { background: #d4edda; color: #155724; padding: 12px 18px; border-radius: 10px; margin-top: 14px; font-weight: 600; font-size: 0.95em; }
+  .auto-saved.error { background: #f8d7da; color: #721c24; }
+
+  .btn-row { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+  .btn-retry {
+    background: linear-gradient(135deg, #2ecc71, #27ae60);
+    color: white; border: none; padding: 12px 32px;
+    font-size: 1em; font-weight: 600; border-radius: 50px;
+    cursor: pointer; transition: transform 0.2s;
+  }
+  .btn-retry:hover { transform: scale(1.04); }
+  .btn-portal {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white; border: none; padding: 12px 32px;
+    font-size: 1em; font-weight: 600; border-radius: 50px;
+    cursor: pointer; transition: transform 0.2s; text-decoration: none;
+  }
+  .btn-portal:hover { transform: scale(1.04); }
+
+  #confetti { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 999; }
+
+  @media (max-width: 600px) {
+    .header h1 { font-size: 20px; }
+    .question-card { padding: 18px; }
+    .ans-input { width: 110px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="confetti"></canvas>
+
+<div class="header">
+  <h1>Maths Challenge Quiz</h1>
+  <p>20 May 2026 &bull; 5 Questions &bull; Logic, Number Theory, Geometry, Combinatorics</p>
+  <div class="timer-bar">
+    <span class="timer" id="timer">00:00</span>
+    <div class="progress-wrap"><div class="progress-fill" id="prog"></div></div>
+    <span style="font-size:0.85em;" id="progTxt">0/5</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Q1: The Number Machine (Logic, Easy) - ORIGINAL -->
+  <div class="question-card" id="c1">
+    <div class="card-top">
+      <span class="badge badge-logic">Logic</span>
+      <span class="diff"><span class="s">&#9733;</span> Easy</span>
+    </div>
+    <div class="q-title">Q1: The Number Machine</div>
+    <p class="q-text">A machine takes a number, <strong>multiplies it by 3</strong>, then <strong>subtracts 5</strong>.</p>
+    <p class="q-text">If the machine outputs <strong>19</strong>, what number was put in?</p>
+    <div class="ans-row">
+      <label>Your answer:</label>
+      <input type="number" class="ans-input" id="a1" placeholder="?" oninput="prog()">
+      <span class="icon" id="i1"></span>
+    </div>
+    <div class="explain" id="e1">
+      <h4>Step-by-step:</h4>
+      <p>Work backwards: 19 + 5 = 24, then 24 &divide; 3 = <strong>8</strong>.<br>Check: 8 &times; 3 = 24, then 24 &minus; 5 = 19 &#10004;</p>
+      <p class="ca">Answer: 8</p>
+    </div>
+  </div>
+
+  <!-- Q2: The Coin Jar (Number Theory, Easy) - NEW -->
+  <div class="question-card" id="c2">
+    <div class="card-top">
+      <span class="badge badge-number">Number Theory</span>
+      <span class="diff"><span class="s">&#9733;</span> Easy</span>
+    </div>
+    <div class="q-title">Q2: The Coin Jar</div>
+    <p class="q-text">Riyansh has a jar of coins. Counting in groups of <strong>4</strong>, he has <strong>3 left over</strong>. Counting in groups of <strong>5</strong>, he has <strong>2 left over</strong>.</p>
+    <p class="q-text">If the jar has <strong>fewer than 30</strong> coins, how many coins are there?</p>
+    <p class="hint">(Hint: Try numbers that give remainder 3 when &divide; 4, then check which also give remainder 2 when &divide; 5.)</p>
+    <div class="ans-row">
+      <label>Your answer:</label>
+      <input type="number" class="ans-input" id="a2" placeholder="?" oninput="prog()">
+      <span class="icon" id="i2"></span>
+    </div>
+    <div class="explain" id="e2">
+      <h4>Step-by-step:</h4>
+      <p>Numbers with remainder 3 when &divide; 4: 3, 7, 11, 15, 19, 23, 27<br>
+      Check remainder when &divide; 5:<br>
+      &bull; 7 &divide; 5 = 1 r <strong>2</strong> &#10004;<br>
+      &bull; 27 &divide; 5 = 5 r <strong>2</strong> &#10004;<br>
+      Both 7 and 27 work!</p>
+      <p class="ca">Answer: 7 or 27</p>
+    </div>
+  </div>
+
+  <!-- Q3: The Garden Path (Geometry, Medium) - ORIGINAL -->
+  <div class="question-card" id="c3">
+    <div class="card-top">
+      <span class="badge badge-geometry">Geometry</span>
+      <span class="diff"><span class="s">&#9733;</span><span class="s">&#9733;</span> Medium</span>
+    </div>
+    <div class="q-title">Q3: The Garden Path</div>
+    <p class="q-text">A rectangular garden is <strong>12 m long</strong> and <strong>5 m wide</strong>. A path of width <strong>1 m</strong> runs around the <strong>outside</strong>.</p>
+    <p class="q-text">What is the area of the path (in m&sup2;)?</p>
+    <p class="hint">(Hint: Think about the bigger rectangle that includes the path.)</p>
+    <div class="ans-row">
+      <label>Your answer:</label>
+      <input type="number" class="ans-input" id="a3" placeholder="?" oninput="prog()">
+      <span class="icon" id="i3"></span>
+    </div>
+    <div class="explain" id="e3">
+      <h4>Step-by-step:</h4>
+      <p>Outer rectangle: (12+2) &times; (5+2) = 14 &times; 7 = 98 m&sup2;<br>
+      Inner garden: 12 &times; 5 = 60 m&sup2;<br>
+      Path area: 98 &minus; 60 = <strong>38 m&sup2;</strong></p>
+      <p class="ca">Answer: 38</p>
+    </div>
+  </div>
+
+  <!-- Q4: The Handshake Problem (Combinatorics, Medium) - ORIGINAL -->
+  <div class="question-card" id="c4">
+    <div class="card-top">
+      <span class="badge badge-combinatorics">Combinatorics</span>
+      <span class="diff"><span class="s">&#9733;</span><span class="s">&#9733;</span> Medium</span>
+    </div>
+    <div class="q-title">Q4: The Handshake Problem</div>
+    <p class="q-text">There are <strong>6 people</strong> at a party. If every person shakes hands with every other person exactly once, how many handshakes happen in total?</p>
+    <div class="ans-row">
+      <label>Your answer:</label>
+      <input type="number" class="ans-input" id="a4" placeholder="?" oninput="prog()">
+      <span class="icon" id="i4"></span>
+    </div>
+    <div class="explain" id="e4">
+      <h4>Step-by-step:</h4>
+      <p>Person 1 shakes with 5, Person 2 with 4 new, Person 3 with 3 new...<br>
+      Total: 5 + 4 + 3 + 2 + 1 = <strong>15</strong><br>
+      Formula: n(n&minus;1)/2 = 6&times;5/2 = 15</p>
+      <p class="ca">Answer: 15</p>
+    </div>
+  </div>
+
+  <!-- Q5: The Treasure Chest Code (Logic, Hard) - NEW -->
+  <div class="question-card" id="c5">
+    <div class="card-top">
+      <span class="badge badge-logic">Logic</span>
+      <span class="diff"><span class="s">&#9733;</span><span class="s">&#9733;</span><span class="s">&#9733;</span> Hard</span>
+    </div>
+    <div class="q-title">Q5: The Treasure Chest Code</div>
+    <p class="q-text">A treasure chest has a 3-digit code lock. Clues:</p>
+    <p class="q-text">
+      &bull; All three digits add up to <strong>12</strong><br>
+      &bull; The hundreds digit is <strong>double</strong> the ones digit<br>
+      &bull; The tens digit is <strong>4 more</strong> than the ones digit
+    </p>
+    <p class="q-text">What is the 3-digit code?</p>
+    <p class="hint">(Hint: Let the ones digit = some number, then figure out the others.)</p>
+    <div class="ans-row">
+      <label>Your answer:</label>
+      <input type="number" class="ans-input" id="a5" placeholder="?" oninput="prog()">
+      <span class="icon" id="i5"></span>
+    </div>
+    <div class="explain" id="e5">
+      <h4>Step-by-step:</h4>
+      <p>Let ones = x. Then hundreds = 2x, tens = x + 4.<br>
+      2x + (x+4) + x = 12 &rarr; 4x + 4 = 12 &rarr; x = <strong>2</strong><br>
+      Ones = 2, Hundreds = 4, Tens = 6 &rarr; Code = <strong>462</strong><br>
+      Check: 4+6+2 = 12 &#10004; | 4 = 2&times;2 &#10004; | 6 = 2+4 &#10004;</p>
+      <p class="ca">Answer: 462</p>
+    </div>
+  </div>
+
+  <div class="submit-area">
+    <button class="submit-btn" id="subBtn" onclick="submit()">Submit Answers</button>
+  </div>
+
+  <div class="results" id="results">
+    <p style="font-size:1.1em; color:#666;">Your Score</p>
+    <div class="score-big" id="scoreBig"></div>
+    <p class="score-msg" id="scoreMsg"></p>
+    <div class="auto-saved" id="savedMsg">Saving results to portal...</div>
+    <div class="btn-row">
+      <button class="btn-retry" onclick="retry()">Try Again</button>
+      <a class="btn-portal" href="/">Back to Portal</a>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+const QUIZ_ID = 'quiz-2026-05-20';
+const USERNAME = 'riyansh';
+
+// Answers: Q1=8, Q2=7 or 27, Q3=38, Q4=15, Q5=462
+const ANS = {
+  a1: [8],
+  a2: [7, 27],
+  a3: [38],
+  a4: [15],
+  a5: [462]
+};
+
+const TOPICS = ['logic', 'number-theory', 'geometry', 'combinatorics', 'logic'];
+const Q_NAMES = [
+  'The Number Machine (Logic, Easy)',
+  'The Coin Jar (Number Theory, Easy)',
+  'The Garden Path (Geometry, Medium)',
+  'The Handshake Problem (Combinatorics, Medium)',
+  'The Treasure Chest Code (Logic, Hard)'
+];
+
+let secs = 0, tInterval, done = false;
+
+function startTimer() {
+  tInterval = setInterval(() => {
+    secs++;
+    const m = Math.floor(secs/60), s = secs%60;
+    document.getElementById('timer').textContent =
+      (m<10?'0'+m:m) + ':' + (s<10?'0'+s:s);
+  }, 1000);
+}
+startTimer();
+
+function prog() {
+  if (done) return;
+  let n = 0;
+  for (let i = 1; i <= 5; i++) if (document.getElementById('a'+i).value.trim()) n++;
+  document.getElementById('prog').style.width = (n/5*100) + '%';
+  document.getElementById('progTxt').textContent = n + '/5';
+}
+
+function check(id, val) {
+  const p = parseFloat(val);
+  return !isNaN(p) && ANS[id].includes(p);
+}
+
+function submit() {
+  done = true;
+  clearInterval(tInterval);
+  let score = 0;
+  const questions = [];
+  const weakAreas = [];
+
+  for (let i = 1; i <= 5; i++) {
+    const inp = document.getElementById('a'+i);
+    const card = document.getElementById('c'+i);
+    const icon = document.getElementById('i'+i);
+    const expl = document.getElementById('e'+i);
+    const val = inp.value.trim();
+    const ok = check('a'+i, val);
+
+    if (ok) {
+      score++;
+      card.classList.add('correct');
+      inp.classList.add('ok');
+      icon.textContent = '✅'; icon.style.display = 'inline';
+    } else {
+      card.classList.add('wrong');
+      inp.classList.add('no');
+      icon.textContent = '❌'; icon.style.display = 'inline';
+      weakAreas.push(TOPICS[i-1]);
+    }
+    expl.style.display = 'block';
+    inp.disabled = true;
+
+    questions.push({
+      number: i,
+      name: Q_NAMES[i-1],
+      topic: TOPICS[i-1],
+      userAnswer: val || '(blank)',
+      correctAnswer: ANS['a'+i].join(' or '),
+      correct: ok
+    });
+  }
+
+  // Show results
+  const sb = document.getElementById('scoreBig');
+  const sm = document.getElementById('scoreMsg');
+  sb.textContent = score + ' / 5';
+
+  if (score === 5) {
+    sb.className = 'score-big green';
+    sm.textContent = 'PERFECT SCORE! Amazing work, Riyansh! You are a maths superstar!';
+    confetti();
+  } else if (score >= 3) {
+    sb.className = 'score-big orange';
+    sm.textContent = 'Good job! You got most of them right. Read the explanations for the ones you missed!';
+    if (score >= 4) confetti();
+  } else {
+    sb.className = 'score-big red';
+    sm.textContent = 'Keep going! Maths takes practice. Read the explanations carefully — you\'ll get better each time!';
+  }
+
+  document.getElementById('results').style.display = 'block';
+  document.getElementById('subBtn').disabled = true;
+  document.getElementById('subBtn').textContent = 'Submitted ✓';
+  document.getElementById('prog').style.width = '100%';
+  document.getElementById('progTxt').textContent = score + '/5';
+  document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+
+  // AUTO-SUBMIT results to portal API
+  const payload = {
+    username: USERNAME,
+    quizId: QUIZ_ID,
+    score: score,
+    total: 5,
+    timeTaken: document.getElementById('timer').textContent,
+    questions: questions,
+    topics: [...new Set(TOPICS)],
+    weakAreas: [...new Set(weakAreas)]
+  };
+
+  const savedDiv = document.getElementById('savedMsg');
+  savedDiv.textContent = 'Saving results to portal...';
+  savedDiv.className = 'auto-saved';
+
+  fetch(API + '/api/quiz-results', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      savedDiv.textContent = '✅ Results saved! Dad will be able to see your score on the portal. Total quizzes completed: ' + data.totalQuizzes;
+      savedDiv.className = 'auto-saved';
+    } else {
+      savedDiv.textContent = '⚠ Could not save results: ' + (data.error || 'Unknown error');
+      savedDiv.className = 'auto-saved error';
+    }
+  })
+  .catch(err => {
+    savedDiv.textContent = '⚠ Could not connect to portal. Your results are shown above — take a screenshot to share with Dad!';
+    savedDiv.className = 'auto-saved error';
+  });
+
+  // Also try to email results via mailto as backup
+  setTimeout(() => {
+    const date = new Date().toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
+    let body = 'RIYANSH MATHS QUIZ RESULTS - ' + date + '%0D%0A';
+    body += 'Score: ' + score + '/5 (' + (score*20) + '%)%0D%0A';
+    body += 'Time: ' + document.getElementById('timer').textContent + '%0D%0A%0D%0A';
+    questions.forEach((q,i) => {
+      body += 'Q' + (i+1) + ': ' + q.name + '%0D%0A';
+      body += '  Answer: ' + q.userAnswer + ' | ' + (q.correct ? 'CORRECT' : 'WRONG (Correct: ' + q.correctAnswer + ')') + '%0D%0A%0D%0A';
+    });
+    const a = document.createElement('a');
+    a.href = 'mailto:vivekkohli81@gmail.com?subject=Riyansh Quiz Results - ' + date + ' - Score ' + score + '/5&body=' + body;
+    a.target = '_blank';
+    a.click();
+  }, 2000);
+}
+
+function retry() {
+  done = false; secs = 0; startTimer();
+  for (let i = 1; i <= 5; i++) {
+    const inp = document.getElementById('a'+i);
+    inp.value = ''; inp.disabled = false;
+    inp.classList.remove('ok','no');
+    document.getElementById('c'+i).classList.remove('correct','wrong');
+    document.getElementById('i'+i).style.display = 'none';
+    document.getElementById('e'+i).style.display = 'none';
+  }
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('subBtn').disabled = false;
+  document.getElementById('subBtn').textContent = 'Submit Answers';
+  prog();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function confetti() {
+  const c = document.getElementById('confetti');
+  const ctx = c.getContext('2d');
+  c.width = window.innerWidth; c.height = window.innerHeight;
+  const colors = ['#FFD700','#FF6B6B','#4ECDC4','#45B7D1','#96CEB4','#FFEAA7','#DDA0DD','#FF9FF3'];
+  const pcs = [];
+  for (let i = 0; i < 120; i++) {
+    pcs.push({
+      x: Math.random()*c.width, y: Math.random()*c.height - c.height,
+      w: Math.random()*10+4, h: Math.random()*6+3,
+      color: colors[Math.floor(Math.random()*colors.length)],
+      vy: Math.random()*3+2, vx: Math.random()*2-1,
+      rot: Math.random()*360, rs: Math.random()*6-3
+    });
+  }
+  let f = 0;
+  (function draw() {
+    ctx.clearRect(0,0,c.width,c.height);
+    pcs.forEach(p => {
+      p.y += p.vy; p.x += p.vx; p.rot += p.rs;
+      ctx.save(); ctx.translate(p.x,p.y);
+      ctx.rotate(p.rot*Math.PI/180);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h);
+      ctx.restore();
+    });
+    if (++f < 180) requestAnimationFrame(draw);
+    else ctx.clearRect(0,0,c.width,c.height);
+  })();
+}
+</script>
+</body>
+</html>

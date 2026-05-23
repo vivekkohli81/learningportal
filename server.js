@@ -12,6 +12,31 @@ const indexHtml = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 const PERF_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(PERF_DIR)) fs.mkdirSync(PERF_DIR, { recursive: true });
 
+// === QUIZ RESULTS DATABASE ===
+const QUIZ_DIR = path.join(__dirname, 'quiz-results');
+if (!fs.existsSync(QUIZ_DIR)) fs.mkdirSync(QUIZ_DIR, { recursive: true });
+
+function getQuizResultsPath(username) {
+  const safe = username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
+  return path.join(QUIZ_DIR, safe + '.json');
+}
+
+function readQuizResults(username) {
+  const fp = getQuizResultsPath(username);
+  try {
+    if (fs.existsSync(fp)) return JSON.parse(fs.readFileSync(fp, 'utf8'));
+  } catch (e) {}
+  return { username, quizzes: [] };
+}
+
+function saveQuizResult(username, result) {
+  const data = readQuizResults(username);
+  data.quizzes.push(result);
+  data.lastUpdated = new Date().toISOString();
+  fs.writeFileSync(getQuizResultsPath(username), JSON.stringify(data, null, 2), 'utf8');
+  return data;
+}
+
 // === FULL PROGRESS SYNC DATABASE ===
 const SYNC_DIR = path.join(__dirname, 'sync');
 if (!fs.existsSync(SYNC_DIR)) fs.mkdirSync(SYNC_DIR, { recursive: true });
@@ -159,6 +184,63 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // === QUIZ RESULTS API ===
+
+  // POST /api/quiz-results - save a quiz result
+  if (req.url === '/api/quiz-results' && req.method === 'POST') {
+    try {
+      const body = JSON.parse(await readBody(req));
+      if (!body.username) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'username is required' }));
+        return;
+      }
+      const result = {
+        quizId: body.quizId || 'quiz-' + new Date().toISOString().slice(0, 10),
+        date: new Date().toISOString(),
+        score: body.score,
+        total: body.total,
+        percentage: body.total > 0 ? Math.round((body.score / body.total) * 100) : 0,
+        timeTaken: body.timeTaken || null,
+        questions: body.questions || [],
+        topics: body.topics || [],
+        weakAreas: body.weakAreas || []
+      };
+      const data = saveQuizResult(body.username, result);
+
+      // Also update performance data with latest quiz info
+      const perf = readPerf(body.username) || { username: body.username };
+      if (!perf.quizHistory) perf.quizHistory = [];
+      perf.quizHistory.push({
+        quizId: result.quizId,
+        date: result.date,
+        score: result.score,
+        total: result.total,
+        percentage: result.percentage,
+        weakAreas: result.weakAreas
+      });
+      perf.lastQuizDate = result.date;
+      perf.lastQuizScore = result.score + '/' + result.total;
+      writePerf(body.username, perf);
+
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ success: true, quizId: result.quizId, totalQuizzes: data.quizzes.length }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // GET /api/quiz-results/:username - get all quiz results for a student
+  if (req.url.startsWith('/api/quiz-results/') && req.method === 'GET') {
+    const username = decodeURIComponent(req.url.split('/api/quiz-results/')[1]).split('?')[0];
+    const data = readQuizResults(username);
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(data));
+    return;
+  }
+
   // === ACCOUNTS SYNC API ===
 
   // POST /api/accounts - upload accounts (admin + kids list)
@@ -241,90 +323,4 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET /api/performance/:username - get specific student's performance
-  if (req.url.startsWith('/api/performance/') && req.method === 'GET') {
-    const username = decodeURIComponent(req.url.split('/api/performance/')[1]).split('?')[0];
-    const data = readPerf(username);
-    if (data) {
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify(data));
-    } else {
-      res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ error: 'Student not found', username: username }));
-    }
-    return;
-  }
-
-  // POST /api/performance - save/update student performance
-  if (req.url === '/api/performance' && req.method === 'POST') {
-    try {
-      const body = JSON.parse(await readBody(req));
-      if (!body.username) {
-        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ error: 'username is required' }));
-        return;
-      }
-      writePerf(body.username, body);
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ success: true, username: body.username }));
-    } catch (e) {
-      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ error: e.message }));
-    }
-    return;
-  }
-
-  // Serve quiz files: /quiz/YYYY-MM-DD → quiz-YYYY-MM-DD.html
-  const quizMatch = req.url.match(/^\/quiz\/(\d{4}-\d{2}-\d{2})$/);
-  if (quizMatch) {
-    const quizFile = path.join(__dirname, `quiz-${quizMatch[1]}.html`);
-    try {
-      const data = fs.readFileSync(quizFile, 'utf8');
-      res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-cache'
-      });
-      res.end(data);
-    } catch (e) {
-      res.writeHead(404, { 'Content-Type': 'text/html' });
-      res.end('<h1>Quiz not found</h1><p>This quiz hasn\'t been published yet. Check back later!</p>');
-    }
-    return;
-  }
-
-  // Serve PWA files
-  const STATIC_FILES = {
-    '/manifest.json': { file: 'manifest.json', type: 'application/json' },
-    '/sw.js': { file: 'sw.js', type: 'application/javascript' },
-    '/icon-192.png': { file: 'icon-192.png', type: 'image/png' },
-    '/icon-512.png': { file: 'icon-512.png', type: 'image/png' }
-  };
-
-  if (STATIC_FILES[req.url]) {
-    const sf = STATIC_FILES[req.url];
-    const filePath = path.join(__dirname, sf.file);
-    try {
-      const data = fs.readFileSync(filePath);
-      res.writeHead(200, {
-        'Content-Type': sf.type,
-        'Cache-Control': sf.type.includes('javascript') ? 'no-cache' : 'public, max-age=86400'
-      });
-      res.end(data);
-    } catch (e) {
-      res.writeHead(404);
-      res.end('Not found');
-    }
-    return;
-  }
-
-  // Serve the portal
-  res.writeHead(200, {
-    'Content-Type': 'text/html; charset=utf-8',
-    'Cache-Control': 'no-cache'
-  });
-  res.end(indexHtml);
-});
-
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Riyansh Learning Portal running on port ${PORT}`);
-});
+  // G
