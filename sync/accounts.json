@@ -1,0 +1,53 @@
+{
+  "admin": {
+    "username": "admin",
+    "password": "admin123"
+  },
+  "settings": {
+    "provider": "claude",
+    "model": "claude-opus-4-6",
+    "key": "",
+    "geminiKey": ""
+  },
+  "kids": [
+    {
+      "id": "kid_riyansh_001",
+      "username": "riyansh",
+      "password": "learn123",
+      "name": "Riyansh",
+      "age": 11,
+      "year": 6,
+      "asd": true,
+      "avatarColor": "#6366f1",
+      "progress": {
+        "english": {
+          "grammar": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []},
+          "vocabulary": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []},
+          "comprehension": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []},
+          "writing": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []},
+          "spelling": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []}
+        },
+        "maths": {
+          "arithmetic": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []},
+          "geometry": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []},
+          "algebra": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []},
+          "dataHandling": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []},
+          "fractions": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []}
+        },
+        "science": {
+          "biology": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []},
+          "chemistry": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []},
+          "physics": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []},
+          "earthSpace": {"lv": 1, "ok": 0, "no": 0, "h": [], "sn": []}
+        },
+        "done": 0,
+        "wr": 0,
+        "aiQ": 0,
+        "streak": 0,
+        "total": 0,
+        "lastDate": null
+      }
+    }
+  ],
+  "lastUpdated": "2026-05-23T12:00:00.000Z"
+}
