@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Submit Your Writing - Riyansh Learning Portal</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f0f4ff;min-height:100vh;color:#1e293b}
+.header{background:linear-gradient(135deg,#2e86c1,#1a5276);color:#fff;padding:20px;text-align:center}
+.header h1{font-size:24px;margin-bottom:4px}
+.header p{font-size:14px;opacity:0.85}
+.container{max-width:700px;margin:20px auto;padding:0 16px}
+.card{background:#fff;border-radius:16px;padding:24px;margin-bottom:20px;box-shadow:0 2px 12px rgba(0,0,0,0.08);border:1px solid #e2e8f0}
+.card h2{font-size:18px;color:#1a5276;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.prompt-box{background:#ebf5fb;padding:16px;border-radius:10px;border-left:4px solid #2e86c1;margin-bottom:16px;font-size:15px;line-height:1.6}
+.prompt-box em{color:#666}
+label{display:block;font-weight:600;font-size:14px;margin-bottom:6px;color:#334155}
+textarea{width:100%;border:2px solid #e2e8f0;border-radius:10px;padding:14px;font-size:15px;font-family:inherit;line-height:1.7;resize:vertical;transition:border-color 0.2s;min-height:200px}
+textarea:focus{outline:none;border-color:#2e86c1;box-shadow:0 0 0 3px rgba(46,134,193,0.15)}
+.word-count{text-align:right;font-size:13px;color:#64748b;margin-top:6px}
+.word-count.good{color:#16a34a;font-weight:600}
+.word-count.over{color:#dc2626;font-weight:600}
+.upload-area{border:2px dashed #cbd5e1;border-radius:12px;padding:30px;text-align:center;cursor:pointer;transition:all 0.2s;background:#f8fafc}
+.upload-area:hover{border-color:#2e86c1;background:#ebf5fb}
+.upload-area.has-file{border-color:#16a34a;background:#f0fdf4}
+.upload-area svg{width:40px;height:40px;color:#94a3b8;margin-bottom:8px}
+.upload-area p{font-size:14px;color:#64748b}
+.upload-area .filename{font-size:14px;color:#16a34a;font-weight:600;margin-top:8px}
+.preview-img{max-width:100%;max-height:300px;border-radius:8px;margin-top:12px}
+input[type="file"]{display:none}
+.or-divider{text-align:center;color:#94a3b8;font-size:13px;margin:16px 0;position:relative}
+.or-divider::before,.or-divider::after{content:'';position:absolute;top:50%;width:40%;height:1px;background:#e2e8f0}
+.or-divider::before{left:0}
+.or-divider::after{right:0}
+.submit-btn{width:100%;padding:16px;background:linear-gradient(135deg,#2e86c1,#1a5276);color:#fff;border:none;border-radius:12px;font-size:17px;font-weight:700;cursor:pointer;transition:all 0.2s;font-family:inherit}
+.submit-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(26,82,118,0.3)}
+.submit-btn:disabled{opacity:0.5;cursor:not-allowed;transform:none;box-shadow:none}
+.status{text-align:center;padding:16px;border-radius:10px;margin-top:16px;font-size:15px;display:none}
+.status.success{display:block;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0}
+.status.error{display:block;background:#fef2f2;color:#dc2626;border:1px solid #fecaca}
+.status.loading{display:block;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe}
+.name-input{width:100%;border:2px solid #e2e8f0;border-radius:10px;padding:12px;font-size:15px;font-family:inherit;margin-bottom:12px}
+.name-input:focus{outline:none;border-color:#2e86c1}
+.checklist{list-style:none;padding:0}
+.checklist li{padding:8px 0;font-size:14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #f1f5f9}
+.checklist li:last-child{border-bottom:none}
+.check-box{width:20px;height:20px;border:2px solid #cbd5e1;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.2s}
+.check-box.checked{background:#16a34a;border-color:#16a34a;color:#fff}
+.tips{font-size:13px;color:#64748b;line-height:1.6;margin-top:8px}
+.confetti{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Submit Your Writing</h1>
+  <p>Type your story below or upload a photo of your handwriting</p>
+</div>
+
+<div class="container">
+  <!-- Prompt Display -->
+  <div class="card" id="promptCard">
+    <h2>Your Writing Prompt</h2>
+    <div class="prompt-box" id="promptDisplay">
+      <em>Loading today's prompt...</em>
+    </div>
+  </div>
+
+  <!-- Student Name -->
+  <div class="card">
+    <h2>Who's submitting?</h2>
+    <input type="text" class="name-input" id="studentName" placeholder="Enter your name (e.g. Riyansh)" value="Riyansh">
+  </div>
+
+  <!-- Option 1: Type your writing -->
+  <div class="card">
+    <h2>Option 1: Type Your Story</h2>
+    <label for="writingText">Write your story here:</label>
+    <textarea id="writingText" placeholder="Start writing your story here... Remember to use capital letters, full stops, and your Power Words!"></textarea>
+    <div class="word-count" id="wordCount">0 words</div>
+  </div>
+
+  <div class="or-divider">— OR —</div>
+
+  <!-- Option 2: Upload a photo -->
+  <div class="card">
+    <h2>Option 2: Upload a Photo</h2>
+    <p class="tips">Wrote it on paper? Take a clear photo and upload it here. Make sure the writing is easy to read!</p>
+    <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 16V4m0 0l-4 4m4-4l4 4"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/></svg>
+      <p>Tap here to upload a photo</p>
+      <p style="font-size:12px;color:#94a3b8;margin-top:4px">JPG, PNG — max 10MB</p>
+      <div class="filename" id="fileName" style="display:none"></div>
+      <img id="previewImg" class="preview-img" style="display:none">
+    </div>
+    <input type="file" id="fileInput" accept="image/*" onchange="handleFileSelect(event)">
+  </div>
+
+  <!-- Checklist -->
+  <div class="card">
+    <h2>Writing Checklist</h2>
+    <ul class="checklist" id="checklist">
+      <li><span class="check-box" onclick="toggleCheck(this)"></span>Every sentence starts with a capital letter</li>
+      <li><span class="check-box" onclick="toggleCheck(this)"></span>Every sentence ends with . ? or !</li>
+      <li><span class="check-box" onclick="toggleCheck(this)"></span>Used speech marks " " when someone talks</li>
+      <li><span class="check-box" onclick="toggleCheck(this)"></span>Story has a beginning, middle, and ending</li>
+      <li><span class="check-box" onclick="toggleCheck(this)"></span>Used at least 2 Power Words</li>
+      <li><span class="check-box" onclick="toggleCheck(this)"></span>Read it through once before submitting</li>
+    </ul>
+  </div>
+
+  <!-- Submit -->
+  <div class="card">
+    <button class="submit-btn" id="submitBtn" onclick="submitWriting()">Submit My Writing!</button>
+    <div class="status" id="statusMsg"></div>
+  </div>
+</div>
+
+<canvas class="confetti" id="confettiCanvas"></canvas>
+
+<script>
+// Get prompt from URL params if provided
+const params = new URLSearchParams(window.location.search);
+const promptText = params.get('prompt');
+const promptTitle = params.get('title') || 'Creative Writing';
+const wordTarget = params.get('words') || '100-150';
+
+if (promptText) {
+  document.getElementById('promptDisplay').innerHTML = '<strong>' + decodeURIComponent(promptText) + '</strong><br><br><strong>Word Count Target:</strong> ' + wordTarget + ' words';
+} else {
+  document.getElementById('promptDisplay').innerHTML = '<em>No specific prompt was provided. Write about anything you like! Aim for ' + wordTarget + ' words.</em>';
+}
+
+// Word counter
+const textarea = document.getElementById('writingText');
+const wordCountEl = document.getElementById('wordCount');
+textarea.addEventListener('input', function() {
+  const words = this.value.trim().split(/\s+/).filter(w => w.length > 0).length;
+  wordCountEl.textContent = words + ' words';
+  const parts = wordTarget.split('-').map(Number);
+  const min = parts[0] || 100;
+  const max = parts[1] || parts[0] || 150;
+  if (words >= min && words <= max) {
+    wordCountEl.className = 'word-count good';
+    wordCountEl.textContent = words + ' words — Perfect length!';
+  } else if (words > max) {
+    wordCountEl.className = 'word-count over';
+    wordCountEl.textContent = words + ' words — A bit long, try to shorten';
+  } else {
+    wordCountEl.className = 'word-count';
+  }
+});
+
+// File upload
+let uploadedFile = null;
+let uploadedBase64 = null;
+
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) {
+    alert('File is too large! Please use a photo under 10MB.');
+    return;
+  }
+  uploadedFile = file;
+  document.getElementById('fileName').style.display = 'block';
+  document.getElementById('fileName').textContent = file.name;
+  document.getElementById('uploadArea').classList.add('has-file');
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    uploadedBase64 = e.target.result;
+    const img = document.getElementById('previewImg');
+    img.src = e.target.result;
+    img.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+
+// Checklist
+function toggleCheck(el) {
+  el.classList.toggle('checked');
+  el.innerHTML = el.classList.contains('checked') ? '✓' : '';
+}
+
+// Submit
+async function submitWriting() {
+  const name = document.getElementById('studentName').value.trim();
+  const text = textarea.value.trim();
+  const btn = document.getElementById('submitBtn');
+  const status = document.getElementById('statusMsg');
+
+  if (!name) {
+    showStatus('Please enter your name!', 'error');
+    return;
+  }
+  if (!text && !uploadedFile) {
+    showStatus('Please type your story or upload a photo!', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
+  showStatus('Sending your writing...', 'loading');
+
+  const submission = {
+    username: name.toLowerCase().replace(/\s+/g, ''),
+    studentName: name,
+    date: new Date().toISOString(),
+    prompt: promptText ? decodeURIComponent(promptText) : 'Free writing',
+    promptTitle: promptTitle,
+    writingText: text || null,
+    wordCount: text ? text.split(/\s+/).filter(w => w.length > 0).length : 0,
+    hasPhoto: !!uploadedFile,
+    photoFilename: uploadedFile ? uploadedFile.name : null,
+    photoData: uploadedBase64 || null,
+    checklist: getChecklistStatus()
+  };
+
+  try {
+    const resp = await fetch('/api/writing-submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(submission)
+    });
+    const result = await resp.json();
+    if (result.success) {
+      showStatus('Your writing has been submitted! Great job, ' + name + '! Dad will get a copy too.', 'success');
+      btn.textContent = 'Submitted!';
+      launchConfetti();
+    } else {
+      throw new Error(result.error || 'Submission failed');
+    }
+  } catch (e) {
+    showStatus('Error: ' + e.message + '. Your writing has been saved locally — ask Dad to check.', 'error');
+    btn.disabled = false;
+    btn.textContent = 'Try Again';
+    // Fallback: save to localStorage
+    try {
+      const saved = JSON.parse(localStorage.getItem('writing_submissions') || '[]');
+      submission.photoData = null; // Don't store large base64 in localStorage
+      saved.push(submission);
+      localStorage.setItem('writing_submissions', JSON.stringify(saved));
+    } catch(e2) {}
+  }
+}
+
+function getChecklistStatus() {
+  const items = document.querySelectorAll('.check-box');
+  const labels = document.querySelectorAll('.checklist li');
+  const result = [];
+  items.forEach((item, i) => {
+    result.push({
+      checked: item.classList.contains('checked'),
+      label: labels[i] ? labels[i].textContent.trim() : ''
+    });
+  });
+  return result;
+}
+
+function showStatus(msg, type) {
+  const el = document.getElementById('statusMsg');
+  el.textContent = msg;
+  el.className = 'status ' + type;
+}
+
+// Confetti animation
+function launchConfetti() {
+  const canvas = document.getElementById('confettiCanvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  const pieces = [];
+  const colors = ['#2e86c1','#f1c40f','#e74c3c','#2ecc71','#9b59b6','#e67e22','#1abc9c'];
+  for (let i = 0; i < 120; i++) {
+    pieces.push({
+      x: Math.random() * canvas.width,
+      y: -20 - Math.random() * 200,
+      w: 6 + Math.random() * 6,
+      h: 12 + Math.random() * 8,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      vy: 2 + Math.random() * 3,
+      vx: -1 + Math.random() * 2,
+      rot: Math.random() * 360,
+      rv: -3 + Math.random() * 6
+    });
+  }
+  let frame = 0;
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    pieces.forEach(p => {
+      p.y += p.vy;
+      p.x += p.vx;
+      p.rot += p.rv;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot * Math.PI / 180);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
+      ctx.restore();
+    });
+    frame++;
+    if (frame < 180) requestAnimationFrame(draw);
+    else ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+  draw();
+}
+</script>
+</body>
+</html>

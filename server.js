@@ -6,15 +6,36 @@ const path = require('path');
 const PORT = process.env.PORT || 3000;
 
 const indexHtml = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+const writingSubmitHtml = fs.readFileSync(path.join(__dirname, 'writing-submit.html'), 'utf8');
+
+// === PERSISTENT DATA STORAGE ===
+// Use Railway volume if available, otherwise fall back to app directory
+// Railway volumes persist across redeploys — set RAILWAY_VOLUME_MOUNT_PATH in Railway dashboard
+const DATA_ROOT = process.env.RAILWAY_VOLUME_MOUNT_PATH || __dirname;
+console.log('Data storage root:', DATA_ROOT);
+
+// On first deploy, copy seed files from app dir to volume if they don't exist
+function seedFile(filename, subdir) {
+  const src = path.join(__dirname, subdir, filename);
+  const dest = path.join(DATA_ROOT, subdir, filename);
+  if (!fs.existsSync(dest) && fs.existsSync(src)) {
+    fs.mkdirSync(path.join(DATA_ROOT, subdir), { recursive: true });
+    fs.copyFileSync(src, dest);
+    console.log('Seeded', dest);
+  }
+}
 
 // === PERFORMANCE DATABASE ===
-// Simple JSON file-based storage for student performance data
-const PERF_DIR = path.join(__dirname, 'data');
+const PERF_DIR = path.join(DATA_ROOT, 'data');
 if (!fs.existsSync(PERF_DIR)) fs.mkdirSync(PERF_DIR, { recursive: true });
 
 // === QUIZ RESULTS DATABASE ===
-const QUIZ_DIR = path.join(__dirname, 'quiz-results');
+const QUIZ_DIR = path.join(DATA_ROOT, 'quiz-results');
 if (!fs.existsSync(QUIZ_DIR)) fs.mkdirSync(QUIZ_DIR, { recursive: true });
+
+// === WRITING SUBMISSIONS DATABASE ===
+const WRITING_DIR = path.join(DATA_ROOT, 'writing-submissions');
+if (!fs.existsSync(WRITING_DIR)) fs.mkdirSync(WRITING_DIR, { recursive: true });
 
 function getQuizResultsPath(username) {
   const safe = username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
@@ -38,11 +59,14 @@ function saveQuizResult(username, result) {
 }
 
 // === FULL PROGRESS SYNC DATABASE ===
-const SYNC_DIR = path.join(__dirname, 'sync');
+const SYNC_DIR = path.join(DATA_ROOT, 'sync');
 if (!fs.existsSync(SYNC_DIR)) fs.mkdirSync(SYNC_DIR, { recursive: true });
 
 // === ACCOUNTS DATABASE ===
-const ACCOUNTS_FILE = path.join(__dirname, 'sync', 'accounts.json');
+const ACCOUNTS_FILE = path.join(DATA_ROOT, 'sync', 'accounts.json');
+
+// Seed the default accounts file on first deploy to volume
+seedFile('accounts.json', 'sync');
 
 function readAccounts() {
   try {
@@ -62,7 +86,6 @@ function getSyncPath(username) {
 }
 
 function getPerfPath(username) {
-  // Sanitize username to prevent path traversal
   const safe = username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
   return path.join(PERF_DIR, safe + '.json');
 }
@@ -93,7 +116,6 @@ function listAllPerf() {
   } catch (e) { return []; }
 }
 
-// Helper: read full request body
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let chunks = [];
@@ -103,7 +125,6 @@ function readBody(req) {
   });
 }
 
-// Helper: proxy a request to an external API
 function proxyRequest(options, body, res) {
   const proxyReq = https.request(options, (proxyRes) => {
     let chunks = [];
@@ -163,7 +184,6 @@ const server = http.createServer(async (req, res) => {
   if (req.url.startsWith('/api/gemini') && req.method === 'POST') {
     try {
       const body = await readBody(req);
-      // Extract the full Gemini URL from query parameter
       const geminiUrl = new URL(req.url, 'http://localhost').searchParams.get('url');
       if (!geminiUrl) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -186,7 +206,6 @@ const server = http.createServer(async (req, res) => {
 
   // === QUIZ RESULTS API ===
 
-  // POST /api/quiz-results - save a quiz result
   if (req.url === '/api/quiz-results' && req.method === 'POST') {
     try {
       const body = JSON.parse(await readBody(req));
@@ -208,7 +227,6 @@ const server = http.createServer(async (req, res) => {
       };
       const data = saveQuizResult(body.username, result);
 
-      // Also update performance data with latest quiz info
       const perf = readPerf(body.username) || { username: body.username };
       if (!perf.quizHistory) perf.quizHistory = [];
       perf.quizHistory.push({
@@ -232,7 +250,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET /api/quiz-results/:username - get all quiz results for a student
   if (req.url.startsWith('/api/quiz-results/') && req.method === 'GET') {
     const username = decodeURIComponent(req.url.split('/api/quiz-results/')[1]).split('?')[0];
     const data = readQuizResults(username);
@@ -243,7 +260,6 @@ const server = http.createServer(async (req, res) => {
 
   // === ACCOUNTS SYNC API ===
 
-  // POST /api/accounts - upload accounts (admin + kids list)
   if (req.url === '/api/accounts' && req.method === 'POST') {
     try {
       const body = JSON.parse(await readBody(req));
@@ -257,7 +273,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET /api/accounts - download accounts
   if (req.url === '/api/accounts' && req.method === 'GET') {
     const data = readAccounts();
     if (data) {
@@ -270,9 +285,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // === FULL PROGRESS SYNC API (two-way cross-device sync) ===
+  // === FULL PROGRESS SYNC API ===
 
-  // POST /api/sync - upload full progress
   if (req.url === '/api/sync' && req.method === 'POST') {
     try {
       const body = JSON.parse(await readBody(req));
@@ -293,7 +307,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET /api/sync/:username - download full progress
   if (req.url.startsWith('/api/sync/') && req.method === 'GET') {
     const username = decodeURIComponent(req.url.split('/api/sync/')[1]).split('?')[0];
     const fp = getSyncPath(username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase());
@@ -315,7 +328,6 @@ const server = http.createServer(async (req, res) => {
 
   // === PERFORMANCE API ===
 
-  // GET /api/performance - list all students' performance summaries
   if (req.url === '/api/performance' && req.method === 'GET') {
     const all = listAllPerf();
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -323,7 +335,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET /api/performance/:username - get specific student's performance
   if (req.url.startsWith('/api/performance/') && req.method === 'GET') {
     const username = decodeURIComponent(req.url.split('/api/performance/')[1]).split('?')[0];
     const data = readPerf(username);
@@ -337,7 +348,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // POST /api/performance - save/update student performance
   if (req.url === '/api/performance' && req.method === 'POST') {
     try {
       const body = JSON.parse(await readBody(req));
@@ -356,26 +366,124 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Serve quiz files: /quiz/YYYY-MM-DD → quiz-YYYY-MM-DD.html
-  const quizMatch = req.url.match(/^\/quiz\/(\d{4}-\d{2}-\d{2})$/);
-  if (quizMatch) {
-    const quizFile = path.join(__dirname, `quiz-${quizMatch[1]}.html`);
+  // === WRITING SUBMISSION API ===
+
+  if (req.url === '/api/writing-submit' && req.method === 'POST') {
     try {
-      const data = fs.readFileSync(quizFile, 'utf8');
+      const body = JSON.parse(await readBody(req));
+      if (!body.username) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'username is required' }));
+        return;
+      }
+      const safe = body.username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
+      const fp = path.join(WRITING_DIR, safe + '.json');
+      let data = { username: body.username, submissions: [] };
+      try {
+        if (fs.existsSync(fp)) data = JSON.parse(fs.readFileSync(fp, 'utf8'));
+      } catch (e) {}
+
+      let photoPath = null;
+      if (body.photoData) {
+        const photoDir = path.join(WRITING_DIR, 'photos');
+        if (!fs.existsSync(photoDir)) fs.mkdirSync(photoDir, { recursive: true });
+        const photoName = safe + '_' + Date.now() + '.jpg';
+        photoPath = path.join(photoDir, photoName);
+        const base64Data = body.photoData.replace(/^data:image\/\w+;base64,/, '');
+        fs.writeFileSync(photoPath, Buffer.from(base64Data, 'base64'));
+        body.photoData = null;
+        body.photoSavedAs = photoName;
+      }
+
+      const submission = {
+        id: 'wr_' + Date.now(),
+        date: body.date || new Date().toISOString(),
+        prompt: body.prompt || '',
+        promptTitle: body.promptTitle || '',
+        writingText: body.writingText || null,
+        wordCount: body.wordCount || 0,
+        hasPhoto: body.hasPhoto || false,
+        photoFilename: body.photoFilename || null,
+        photoSavedAs: body.photoSavedAs || null,
+        checklist: body.checklist || []
+      };
+
+      data.submissions.push(submission);
+      data.lastUpdated = new Date().toISOString();
+      fs.writeFileSync(fp, JSON.stringify(data, null, 2), 'utf8');
+
+      const perf = readPerf(safe) || { username: body.username };
+      if (!perf.writingHistory) perf.writingHistory = [];
+      perf.writingHistory.push({
+        id: submission.id,
+        date: submission.date,
+        promptTitle: submission.promptTitle,
+        wordCount: submission.wordCount,
+        checklistComplete: (submission.checklist || []).filter(function(c) { return c.checked; }).length + '/' + (submission.checklist || []).length
+      });
+      perf.lastWritingDate = submission.date;
+      perf.totalWritings = (perf.totalWritings || 0) + 1;
+      writePerf(safe, perf);
+
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ success: true, submissionId: submission.id, totalSubmissions: data.submissions.length }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  if (req.url.startsWith('/api/writing-submissions/') && req.method === 'GET') {
+    const username = decodeURIComponent(req.url.split('/api/writing-submissions/')[1]).split('?')[0];
+    const safe = username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
+    const fp = path.join(WRITING_DIR, safe + '.json');
+    try {
+      if (fs.existsSync(fp)) {
+        const data = JSON.parse(fs.readFileSync(fp, 'utf8'));
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(data));
+      } else {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ username: username, submissions: [] }));
+      }
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // Serve writing submission page: /writing/submit
+  if (req.url.startsWith('/writing/submit')) {
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-cache'
+    });
+    res.end(writingSubmitHtml);
+    return;
+  }
+
+  // Serve quiz files: /quiz/YYYY-MM-DD
+  var quizMatch = req.url.match(/^\/quiz\/(\d{4}-\d{2}-\d{2})$/);
+  if (quizMatch) {
+    var quizFile = path.join(__dirname, 'quiz-' + quizMatch[1] + '.html');
+    try {
+      var qdata = fs.readFileSync(quizFile, 'utf8');
       res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-cache'
       });
-      res.end(data);
+      res.end(qdata);
     } catch (e) {
       res.writeHead(404, { 'Content-Type': 'text/html' });
-      res.end('<h1>Quiz not found</h1><p>This quiz hasn\'t been published yet. Check back later!</p>');
+      res.end('<h1>Quiz not found</h1><p>This quiz has not been published yet. Check back later!</p>');
     }
     return;
   }
 
   // Serve PWA files
-  const STATIC_FILES = {
+  var STATIC_FILES = {
     '/manifest.json': { file: 'manifest.json', type: 'application/json' },
     '/sw.js': { file: 'sw.js', type: 'application/javascript' },
     '/icon-192.png': { file: 'icon-192.png', type: 'image/png' },
@@ -383,15 +491,15 @@ const server = http.createServer(async (req, res) => {
   };
 
   if (STATIC_FILES[req.url]) {
-    const sf = STATIC_FILES[req.url];
-    const filePath = path.join(__dirname, sf.file);
+    var sf = STATIC_FILES[req.url];
+    var filePath = path.join(__dirname, sf.file);
     try {
-      const data = fs.readFileSync(filePath);
+      var sdata = fs.readFileSync(filePath);
       res.writeHead(200, {
         'Content-Type': sf.type,
         'Cache-Control': sf.type.includes('javascript') ? 'no-cache' : 'public, max-age=86400'
       });
-      res.end(data);
+      res.end(sdata);
     } catch (e) {
       res.writeHead(404);
       res.end('Not found');
@@ -407,6 +515,6 @@ const server = http.createServer(async (req, res) => {
   res.end(indexHtml);
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Riyansh Learning Portal running on port ${PORT}`);
+server.listen(PORT, '0.0.0.0', function() {
+  console.log('Riyansh Learning Portal running on port ' + PORT);
 });
