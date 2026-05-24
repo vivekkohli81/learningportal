@@ -405,7 +405,8 @@ const server = http.createServer(async (req, res) => {
         hasPhoto: body.hasPhoto || false,
         photoFilename: body.photoFilename || null,
         photoSavedAs: body.photoSavedAs || null,
-        checklist: body.checklist || []
+        checklist: body.checklist || [],
+        feedback: body.feedback || null
       };
 
       data.submissions.push(submission);

@@ -14,7 +14,6 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f0f4f
 .card{background:#fff;border-radius:16px;padding:24px;margin-bottom:20px;box-shadow:0 2px 12px rgba(0,0,0,0.08);border:1px solid #e2e8f0}
 .card h2{font-size:18px;color:#1a5276;margin-bottom:12px;display:flex;align-items:center;gap:8px}
 .prompt-box{background:#ebf5fb;padding:16px;border-radius:10px;border-left:4px solid #2e86c1;margin-bottom:16px;font-size:15px;line-height:1.6}
-.prompt-box em{color:#666}
 label{display:block;font-weight:600;font-size:14px;margin-bottom:6px;color:#334155}
 textarea{width:100%;border:2px solid #e2e8f0;border-radius:10px;padding:14px;font-size:15px;font-family:inherit;line-height:1.7;resize:vertical;transition:border-color 0.2s;min-height:200px}
 textarea:focus{outline:none;border-color:#2e86c1;box-shadow:0 0 0 3px rgba(46,134,193,0.15)}
@@ -24,7 +23,6 @@ textarea:focus{outline:none;border-color:#2e86c1;box-shadow:0 0 0 3px rgba(46,13
 .upload-area{border:2px dashed #cbd5e1;border-radius:12px;padding:30px;text-align:center;cursor:pointer;transition:all 0.2s;background:#f8fafc}
 .upload-area:hover{border-color:#2e86c1;background:#ebf5fb}
 .upload-area.has-file{border-color:#16a34a;background:#f0fdf4}
-.upload-area svg{width:40px;height:40px;color:#94a3b8;margin-bottom:8px}
 .upload-area p{font-size:14px;color:#64748b}
 .upload-area .filename{font-size:14px;color:#16a34a;font-weight:600;margin-top:8px}
 .preview-img{max-width:100%;max-height:300px;border-radius:8px;margin-top:12px}
@@ -47,8 +45,28 @@ input[type="file"]{display:none}
 .checklist li:last-child{border-bottom:none}
 .check-box{width:20px;height:20px;border:2px solid #cbd5e1;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.2s}
 .check-box.checked{background:#16a34a;border-color:#16a34a;color:#fff}
-.tips{font-size:13px;color:#64748b;line-height:1.6;margin-top:8px}
 .confetti{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999}
+/* Feedback styles */
+.feedback-card{background:#fff;border-radius:16px;padding:24px;margin-bottom:20px;box-shadow:0 4px 20px rgba(0,0,0,0.12);border:2px solid #2e86c1;display:none}
+.feedback-card.active{display:block;animation:fadeIn 0.4s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.fb-score{text-align:center;margin-bottom:20px}
+.fb-score-circle{width:100px;height:100px;border-radius:50%;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:#fff}
+.fb-score-circle.great{background:linear-gradient(135deg,#16a34a,#22c55e)}
+.fb-score-circle.ok{background:linear-gradient(135deg,#f59e0b,#fbbf24)}
+.fb-score-circle.needs{background:linear-gradient(135deg,#ef4444,#f87171)}
+.fb-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:14px}
+.fb-row:last-child{border-bottom:none}
+.fb-label{color:#64748b}
+.fb-value{font-weight:600}
+.fb-stars{color:#f59e0b}
+.fb-section{margin-top:16px;padding:14px;border-radius:10px;font-size:14px;line-height:1.7}
+.fb-section.good{background:#f0fdf4;border-left:4px solid #16a34a}
+.fb-section.improve{background:#fef9e7;border-left:4px solid #f1c40f}
+.fb-section h4{margin-bottom:6px}
+.fb-fix{margin:6px 0;font-size:13px}
+.fb-fix .wrong{color:#dc2626;text-decoration:line-through}
+.fb-fix .right{color:#16a34a;font-weight:600}
 </style>
 </head>
 <body>
@@ -59,22 +77,17 @@ input[type="file"]{display:none}
 </div>
 
 <div class="container">
-  <!-- Prompt Display -->
   <div class="card" id="promptCard">
     <h2>Your Writing Prompt</h2>
-    <div class="prompt-box" id="promptDisplay">
-      <em>Loading today's prompt...</em>
-    </div>
+    <div class="prompt-box" id="promptDisplay"><em>Loading today's prompt...</em></div>
   </div>
 
-  <!-- Student Name -->
   <div class="card">
     <h2>Who's submitting?</h2>
     <input type="text" class="name-input" id="studentName" placeholder="Enter your name (e.g. Riyansh)" value="Riyansh">
   </div>
 
-  <!-- Option 1: Type your writing -->
-  <div class="card">
+  <div class="card" id="typingCard">
     <h2>Option 1: Type Your Story</h2>
     <label for="writingText">Write your story here:</label>
     <textarea id="writingText" placeholder="Start writing your story here... Remember to use capital letters, full stops, and your Power Words!"></textarea>
@@ -83,12 +96,10 @@ input[type="file"]{display:none}
 
   <div class="or-divider">— OR —</div>
 
-  <!-- Option 2: Upload a photo -->
   <div class="card">
     <h2>Option 2: Upload a Photo</h2>
-    <p class="tips">Wrote it on paper? Take a clear photo and upload it here. Make sure the writing is easy to read!</p>
+    <p style="font-size:13px;color:#64748b;margin-bottom:10px">Wrote it on paper? Take a clear photo and upload it here.</p>
     <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 16V4m0 0l-4 4m4-4l4 4"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/></svg>
       <p>Tap here to upload a photo</p>
       <p style="font-size:12px;color:#94a3b8;margin-top:4px">JPG, PNG — max 10MB</p>
       <div class="filename" id="fileName" style="display:none"></div>
@@ -97,7 +108,6 @@ input[type="file"]{display:none}
     <input type="file" id="fileInput" accept="image/*" onchange="handleFileSelect(event)">
   </div>
 
-  <!-- Checklist -->
   <div class="card">
     <h2>Writing Checklist</h2>
     <ul class="checklist" id="checklist">
@@ -110,37 +120,40 @@ input[type="file"]{display:none}
     </ul>
   </div>
 
-  <!-- Submit -->
-  <div class="card">
+  <div class="card" id="submitCard">
     <button class="submit-btn" id="submitBtn" onclick="submitWriting()">Submit My Writing!</button>
     <div class="status" id="statusMsg"></div>
+  </div>
+
+  <!-- INSTANT FEEDBACK CARD — shown after submission -->
+  <div class="feedback-card" id="feedbackCard">
+    <h2 style="text-align:center;color:#2e86c1;">Your Writing Feedback</h2>
+    <div id="feedbackContent"></div>
   </div>
 </div>
 
 <canvas class="confetti" id="confettiCanvas"></canvas>
 
 <script>
-// Get prompt from URL params if provided
-const params = new URLSearchParams(window.location.search);
-const promptText = params.get('prompt');
-const promptTitle = params.get('title') || 'Creative Writing';
-const wordTarget = params.get('words') || '100-150';
+var params = new URLSearchParams(window.location.search);
+var promptText = params.get('prompt');
+var promptTitle = params.get('title') || 'Creative Writing';
+var wordTarget = params.get('words') || '100-150';
+var powerWords = (params.get('powerwords') || 'extraordinary,bewildered,glimmering,enormous,relieved,astonished,whispered,curious,adventure,discovered').toLowerCase().split(',');
 
 if (promptText) {
   document.getElementById('promptDisplay').innerHTML = '<strong>' + decodeURIComponent(promptText) + '</strong><br><br><strong>Word Count Target:</strong> ' + wordTarget + ' words';
 } else {
-  document.getElementById('promptDisplay').innerHTML = '<em>No specific prompt was provided. Write about anything you like! Aim for ' + wordTarget + ' words.</em>';
+  document.getElementById('promptDisplay').innerHTML = '<em>No specific prompt provided. Write about anything you like! Aim for ' + wordTarget + ' words.</em>';
 }
 
-// Word counter
-const textarea = document.getElementById('writingText');
-const wordCountEl = document.getElementById('wordCount');
+var textarea = document.getElementById('writingText');
+var wordCountEl = document.getElementById('wordCount');
 textarea.addEventListener('input', function() {
-  const words = this.value.trim().split(/\s+/).filter(w => w.length > 0).length;
+  var words = this.value.trim().split(/\s+/).filter(function(w){return w.length>0}).length;
   wordCountEl.textContent = words + ' words';
-  const parts = wordTarget.split('-').map(Number);
-  const min = parts[0] || 100;
-  const max = parts[1] || parts[0] || 150;
+  var parts = wordTarget.split('-').map(Number);
+  var min = parts[0] || 100, max = parts[1] || parts[0] || 150;
   if (words >= min && words <= max) {
     wordCountEl.className = 'word-count good';
     wordCountEl.textContent = words + ' words — Perfect length!';
@@ -152,157 +165,346 @@ textarea.addEventListener('input', function() {
   }
 });
 
-// File upload
-let uploadedFile = null;
-let uploadedBase64 = null;
-
+var uploadedFile = null, uploadedBase64 = null;
 function handleFileSelect(event) {
-  const file = event.target.files[0];
+  var file = event.target.files[0];
   if (!file) return;
-  if (file.size > 10 * 1024 * 1024) {
-    alert('File is too large! Please use a photo under 10MB.');
-    return;
-  }
+  if (file.size > 10*1024*1024) { alert('File too large! Use a photo under 10MB.'); return; }
   uploadedFile = file;
   document.getElementById('fileName').style.display = 'block';
   document.getElementById('fileName').textContent = file.name;
   document.getElementById('uploadArea').classList.add('has-file');
-
-  const reader = new FileReader();
+  var reader = new FileReader();
   reader.onload = function(e) {
     uploadedBase64 = e.target.result;
-    const img = document.getElementById('previewImg');
+    var img = document.getElementById('previewImg');
     img.src = e.target.result;
     img.style.display = 'block';
   };
   reader.readAsDataURL(file);
 }
 
-// Checklist
 function toggleCheck(el) {
   el.classList.toggle('checked');
   el.innerHTML = el.classList.contains('checked') ? '✓' : '';
 }
 
-// Submit
-async function submitWriting() {
-  const name = document.getElementById('studentName').value.trim();
-  const text = textarea.value.trim();
-  const btn = document.getElementById('submitBtn');
-  const status = document.getElementById('statusMsg');
+// ============================
+// INSTANT FEEDBACK ENGINE
+// ============================
+function analyzeWriting(text) {
+  var fb = {};
+  var sentences = text.split(/[.!?]+/).filter(function(s){return s.trim().length > 0});
+  var words = text.trim().split(/\s+/).filter(function(w){return w.length > 0});
+  fb.wordCount = words.length;
 
-  if (!name) {
-    showStatus('Please enter your name!', 'error');
-    return;
+  // Word count score
+  var parts = wordTarget.split('-').map(Number);
+  var min = parts[0]||100, max = parts[1]||parts[0]||150;
+  if (fb.wordCount >= min && fb.wordCount <= max) fb.wordCountScore = 5;
+  else if (fb.wordCount >= min*0.7 && fb.wordCount <= max*1.3) fb.wordCountScore = 3;
+  else fb.wordCountScore = 2;
+  fb.wordCountTarget = min + '-' + max;
+
+  // Capital letters check
+  var capitalIssues = [];
+  var rawSentences = text.split(/(?<=[.!?])\s+/);
+  var capitalOk = 0, capitalTotal = rawSentences.length;
+  for (var i = 0; i < rawSentences.length; i++) {
+    var s = rawSentences[i].trim();
+    if (s.length === 0) continue;
+    if (s[0] === s[0].toUpperCase() && s[0] !== s[0].toLowerCase()) {
+      capitalOk++;
+    } else {
+      capitalIssues.push(s.substring(0, 40) + (s.length > 40 ? '...' : ''));
+    }
   }
-  if (!text && !uploadedFile) {
-    showStatus('Please type your story or upload a photo!', 'error');
-    return;
+  fb.capitalScore = capitalTotal > 0 ? Math.round((capitalOk / capitalTotal) * 5) : 3;
+  fb.capitalIssues = capitalIssues.slice(0, 3);
+
+  // Punctuation — sentences ending properly
+  var lines = text.split('\n').filter(function(l){return l.trim().length > 0});
+  var punctOk = 0;
+  for (var j = 0; j < lines.length; j++) {
+    var line = lines[j].trim();
+    if (line.length > 0 && /[.!?]$/.test(line)) punctOk++;
   }
+  // Also check: how many sentence fragments (long runs without punctuation)
+  var longRuns = text.split(/[.!?]/).filter(function(s){return s.trim().split(/\s+/).length > 35});
+  fb.runOnCount = longRuns.length;
+  fb.punctScore = fb.runOnCount === 0 ? 5 : fb.runOnCount <= 2 ? 3 : 1;
+
+  // Run-on sentence examples
+  fb.runOnExamples = [];
+  for (var k = 0; k < longRuns.length && k < 2; k++) {
+    var run = longRuns[k].trim();
+    fb.runOnExamples.push(run.substring(0, 60) + '...');
+  }
+
+  // Power words
+  var textLower = text.toLowerCase();
+  fb.powerWordsFound = [];
+  for (var p = 0; p < powerWords.length; p++) {
+    if (textLower.indexOf(powerWords[p]) !== -1) {
+      fb.powerWordsFound.push(powerWords[p]);
+    }
+  }
+  fb.powerWordScore = fb.powerWordsFound.length >= 3 ? 5 : fb.powerWordsFound.length >= 2 ? 4 : fb.powerWordsFound.length >= 1 ? 3 : 1;
+
+  // Speech marks
+  var speechMarks = (text.match(/[""][^""]*[""]|"[^"]*"/g) || []).length;
+  fb.speechMarks = speechMarks;
+  fb.speechScore = speechMarks >= 2 ? 5 : speechMarks >= 1 ? 3 : 2;
+
+  // Paragraph count
+  var paragraphs = text.split(/\n\s*\n/).filter(function(p){return p.trim().length > 0});
+  if (paragraphs.length < 2) paragraphs = text.split('\n').filter(function(p){return p.trim().length > 10});
+  fb.paragraphCount = paragraphs.length;
+  fb.structureScore = fb.paragraphCount >= 3 ? 5 : fb.paragraphCount >= 2 ? 3 : 2;
+
+  // Common spelling issues
+  fb.spellingIssues = [];
+  var commonMistakes = {
+    'relived':'relieved','recieved':'received','thier':'their','becuase':'because',
+    'definately':'definitely','seperate':'separate','occured':'occurred',
+    'untill':'until','wich':'which','beacuse':'because','freind':'friend',
+    'thang':'thank','beleive':'believe','wierd':'weird','acheive':'achieve',
+    'goverment':'government','enviroment':'environment','tommorow':'tomorrow',
+    'diffrent':'different','intresting':'interesting','beautifull':'beautiful',
+    'finaly':'finally','realy':'really','actualy':'actually'
+  };
+  var wordsLower = textLower.split(/\s+/);
+  for (var w = 0; w < wordsLower.length; w++) {
+    var word = wordsLower[w].replace(/[^a-z]/g, '');
+    if (commonMistakes[word]) {
+      fb.spellingIssues.push({wrong: word, right: commonMistakes[word]});
+    }
+  }
+  fb.spellingScore = fb.spellingIssues.length === 0 ? 5 : fb.spellingIssues.length <= 2 ? 3 : 2;
+
+  // Overall score
+  var scores = [fb.capitalScore, fb.punctScore, fb.powerWordScore, fb.wordCountScore, fb.structureScore, fb.spellingScore];
+  fb.overall = 0;
+  for (var s2 = 0; s2 < scores.length; s2++) fb.overall += scores[s2];
+  fb.overall = (fb.overall / scores.length).toFixed(1);
+
+  return fb;
+}
+
+function renderFeedback(fb) {
+  var grade = fb.overall >= 4 ? 'great' : fb.overall >= 2.5 ? 'ok' : 'needs';
+  var emoji = fb.overall >= 4 ? '🏆' : fb.overall >= 3 ? '⭐' : '💪';
+  var msg = fb.overall >= 4 ? 'Excellent work!' : fb.overall >= 3 ? 'Good effort! Keep improving!' : 'Keep practising — you\'re getting better!';
+
+  var h = '<div class="fb-score">';
+  h += '<div class="fb-score-circle ' + grade + '">' + fb.overall + '/5</div>';
+  h += '<div style="font-size:18px;font-weight:600;">' + emoji + ' ' + msg + '</div>';
+  h += '</div>';
+
+  // Scorecard
+  h += '<div style="margin-top:16px;">';
+  h += scoreRow('Word Count', fb.wordCountScore, fb.wordCount + ' words (target: ' + fb.wordCountTarget + ')');
+  h += scoreRow('Capital Letters', fb.capitalScore, fb.capitalScore >= 4 ? 'Good use of capitals!' : fb.capitalIssues.length + ' sentences missing capitals');
+  h += scoreRow('Punctuation & Sentence Length', fb.punctScore, fb.runOnCount === 0 ? 'Great sentence structure!' : fb.runOnCount + ' run-on sentence(s) found');
+  h += scoreRow('Power Words', fb.powerWordScore, fb.powerWordsFound.length + ' used: ' + (fb.powerWordsFound.length > 0 ? fb.powerWordsFound.join(', ') : 'none found'));
+  h += scoreRow('Speech Marks', fb.speechScore, fb.speechMarks + ' dialogue section(s)');
+  h += scoreRow('Story Structure', fb.structureScore, fb.paragraphCount + ' paragraph(s)');
+  h += scoreRow('Spelling', fb.spellingScore, fb.spellingIssues.length === 0 ? 'No common errors!' : fb.spellingIssues.length + ' word(s) to check');
+  h += '</div>';
+
+  // What you did well
+  var goods = [];
+  if (fb.powerWordScore >= 4) goods.push('Great use of Power Words (' + fb.powerWordsFound.join(', ') + ')!');
+  if (fb.structureScore >= 4) goods.push('Well-structured story with clear paragraphs!');
+  if (fb.speechScore >= 4) goods.push('Good use of speech marks for dialogue!');
+  if (fb.capitalScore >= 4) goods.push('Capital letters used correctly!');
+  if (fb.wordCountScore >= 4) goods.push('Perfect word count — right on target!');
+  if (fb.spellingScore >= 5) goods.push('No spelling mistakes found!');
+  if (fb.wordCount > 80) goods.push('You wrote plenty — your ideas are flowing!');
+
+  if (goods.length > 0) {
+    h += '<div class="fb-section good"><h4>What You Did Well</h4>';
+    for (var g = 0; g < goods.length; g++) h += '<div>✅ ' + goods[g] + '</div>';
+    h += '</div>';
+  }
+
+  // Things to improve
+  var improves = [];
+  if (fb.capitalScore < 4 && fb.capitalIssues.length > 0) {
+    var fix = 'Some sentences don\'t start with a capital letter.';
+    for (var ci = 0; ci < fb.capitalIssues.length && ci < 2; ci++) {
+      fix += '<div class="fb-fix">❌ <span class="wrong">' + fb.capitalIssues[ci].substring(0,1) + '</span>... → <span class="right">' + fb.capitalIssues[ci].substring(0,1).toUpperCase() + '</span>...</div>';
+    }
+    improves.push(fix);
+  }
+  if (fb.runOnCount > 0) {
+    improves.push('You have ' + fb.runOnCount + ' very long sentence(s). Try breaking them up with full stops! <br><strong>Tip:</strong> Read aloud — where you take a breath, put a full stop.');
+  }
+  if (fb.spellingIssues.length > 0) {
+    var sp = 'Check these spellings:';
+    for (var si = 0; si < fb.spellingIssues.length && si < 3; si++) {
+      sp += '<div class="fb-fix"><span class="wrong">' + fb.spellingIssues[si].wrong + '</span> → <span class="right">' + fb.spellingIssues[si].right + '</span></div>';
+    }
+    improves.push(sp);
+  }
+  if (fb.powerWordScore < 3) {
+    improves.push('Try using more Power Words next time! They make your writing more interesting.');
+  }
+  if (fb.structureScore < 4) {
+    improves.push('Try writing in 3 paragraphs: beginning, middle, and ending. Press Enter twice between paragraphs.');
+  }
+
+  if (improves.length > 0) {
+    h += '<div class="fb-section improve"><h4>Things to Work On</h4>';
+    for (var im = 0; im < improves.length; im++) h += '<div style="margin-bottom:10px;">📝 ' + improves[im] + '</div>';
+    h += '</div>';
+  }
+
+  // Challenge
+  h += '<div style="background:#ebf5fb;padding:14px;border-radius:10px;border-left:4px solid #2e86c1;margin-top:16px;font-size:14px;">';
+  h += '<strong>Challenge for next time:</strong> Before you submit, read your writing out loud. Every time you take a breath, that\'s probably where a <strong>full stop</strong> should go!';
+  h += '</div>';
+
+  return h;
+}
+
+function scoreRow(label, score, detail) {
+  var stars = '';
+  for (var i = 0; i < 5; i++) stars += i < score ? '★' : '☆';
+  return '<div class="fb-row"><span class="fb-label">' + label + '</span><span class="fb-stars">' + stars + '</span><span class="fb-value">' + detail + '</span></div>';
+}
+
+// ============================
+// SUBMIT + FEEDBACK + EMAIL
+// ============================
+function submitWriting() {
+  var name = document.getElementById('studentName').value.trim();
+  var text = textarea.value.trim();
+  var btn = document.getElementById('submitBtn');
+  var status = document.getElementById('statusMsg');
+
+  if (!name) { showStatus('Please enter your name!', 'error'); return; }
+  if (!text && !uploadedFile) { showStatus('Please type your story or upload a photo!', 'error'); return; }
 
   btn.disabled = true;
   btn.textContent = 'Submitting...';
-  showStatus('Sending your writing...', 'loading');
+  showStatus('Analysing your writing...', 'loading');
 
-  const submission = {
+  // Analyze writing immediately
+  var feedback = text ? analyzeWriting(text) : null;
+
+  var submission = {
     username: name.toLowerCase().replace(/\s+/g, ''),
     studentName: name,
     date: new Date().toISOString(),
     prompt: promptText ? decodeURIComponent(promptText) : 'Free writing',
     promptTitle: promptTitle,
     writingText: text || null,
-    wordCount: text ? text.split(/\s+/).filter(w => w.length > 0).length : 0,
+    wordCount: text ? text.split(/\s+/).filter(function(w){return w.length>0}).length : 0,
     hasPhoto: !!uploadedFile,
     photoFilename: uploadedFile ? uploadedFile.name : null,
     photoData: uploadedBase64 || null,
-    checklist: getChecklistStatus()
+    checklist: getChecklistStatus(),
+    feedback: feedback
   };
 
-  try {
-    const resp = await fetch('/api/writing-submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(submission)
+  fetch('/api/writing-submit', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(submission)
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success) {
+        showStatus('Submitted! See your feedback below.', 'success');
+        btn.textContent = 'Submitted!';
+        // Show feedback
+        if (feedback) {
+          document.getElementById('feedbackContent').innerHTML = renderFeedback(feedback);
+          document.getElementById('feedbackCard').classList.add('active');
+          document.getElementById('feedbackCard').scrollIntoView({behavior: 'smooth'});
+        }
+        if (feedback && feedback.overall >= 4) launchConfetti();
+
+        // Email results to parent
+        sendParentEmail(name, text, feedback);
+      } else {
+        throw new Error(d.error || 'Failed');
+      }
+    })
+    .catch(function(e) {
+      showStatus('Saved locally! ' + e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Try Again';
+      // Still show feedback even if server save failed
+      if (feedback) {
+        document.getElementById('feedbackContent').innerHTML = renderFeedback(feedback);
+        document.getElementById('feedbackCard').classList.add('active');
+        document.getElementById('feedbackCard').scrollIntoView({behavior: 'smooth'});
+        sendParentEmail(name, text, feedback);
+      }
     });
-    const result = await resp.json();
-    if (result.success) {
-      showStatus('Your writing has been submitted! Great job, ' + name + '! Dad will get a copy too.', 'success');
-      btn.textContent = 'Submitted!';
-      launchConfetti();
-    } else {
-      throw new Error(result.error || 'Submission failed');
+}
+
+function sendParentEmail(name, text, fb) {
+  var subject = 'Writing Submitted: ' + promptTitle + ' - Score: ' + (fb ? fb.overall + '/5' : 'Photo upload');
+  var body = name + ' submitted writing for "' + promptTitle + '"';
+  body += '\nDate: ' + new Date().toLocaleDateString();
+  if (fb) {
+    body += '\n\n--- SCORES ---';
+    body += '\nOverall: ' + fb.overall + '/5';
+    body += '\nWord Count: ' + fb.wordCount + ' (target: ' + fb.wordCountTarget + ')';
+    body += '\nCapital Letters: ' + fb.capitalScore + '/5';
+    body += '\nPunctuation: ' + fb.punctScore + '/5';
+    body += '\nPower Words: ' + fb.powerWordScore + '/5 (' + fb.powerWordsFound.join(', ') + ')';
+    body += '\nStructure: ' + fb.structureScore + '/5';
+    body += '\nSpelling: ' + fb.spellingScore + '/5';
+    if (fb.spellingIssues.length > 0) {
+      body += '\n\nSpelling fixes: ';
+      for (var i = 0; i < fb.spellingIssues.length; i++) {
+        body += fb.spellingIssues[i].wrong + ' -> ' + fb.spellingIssues[i].right + ', ';
+      }
     }
-  } catch (e) {
-    showStatus('Error: ' + e.message + '. Your writing has been saved locally — ask Dad to check.', 'error');
-    btn.disabled = false;
-    btn.textContent = 'Try Again';
-    // Fallback: save to localStorage
-    try {
-      const saved = JSON.parse(localStorage.getItem('writing_submissions') || '[]');
-      submission.photoData = null; // Don't store large base64 in localStorage
-      saved.push(submission);
-      localStorage.setItem('writing_submissions', JSON.stringify(saved));
-    } catch(e2) {}
   }
+  body += '\n\n--- FULL TEXT ---\n' + (text || '(Photo upload - no text)');
+  body += '\n\nView all submissions: ' + window.location.origin + '/api/writing-submissions/' + name.toLowerCase().replace(/\s+/g,'');
+
+  var mailLink = document.createElement('a');
+  mailLink.href = 'mailto:vivekkohli81@gmail.com?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+  mailLink.click();
 }
 
 function getChecklistStatus() {
-  const items = document.querySelectorAll('.check-box');
-  const labels = document.querySelectorAll('.checklist li');
-  const result = [];
-  items.forEach((item, i) => {
-    result.push({
-      checked: item.classList.contains('checked'),
-      label: labels[i] ? labels[i].textContent.trim() : ''
-    });
-  });
+  var items = document.querySelectorAll('.check-box');
+  var labels = document.querySelectorAll('.checklist li');
+  var result = [];
+  for (var i = 0; i < items.length; i++) {
+    result.push({ checked: items[i].classList.contains('checked'), label: labels[i] ? labels[i].textContent.trim() : '' });
+  }
   return result;
 }
 
 function showStatus(msg, type) {
-  const el = document.getElementById('statusMsg');
+  var el = document.getElementById('statusMsg');
   el.textContent = msg;
   el.className = 'status ' + type;
 }
 
-// Confetti animation
 function launchConfetti() {
-  const canvas = document.getElementById('confettiCanvas');
-  const ctx = canvas.getContext('2d');
+  var canvas = document.getElementById('confettiCanvas');
+  var ctx = canvas.getContext('2d');
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
-  const pieces = [];
-  const colors = ['#2e86c1','#f1c40f','#e74c3c','#2ecc71','#9b59b6','#e67e22','#1abc9c'];
-  for (let i = 0; i < 120; i++) {
-    pieces.push({
-      x: Math.random() * canvas.width,
-      y: -20 - Math.random() * 200,
-      w: 6 + Math.random() * 6,
-      h: 12 + Math.random() * 8,
-      color: colors[Math.floor(Math.random() * colors.length)],
-      vy: 2 + Math.random() * 3,
-      vx: -1 + Math.random() * 2,
-      rot: Math.random() * 360,
-      rv: -3 + Math.random() * 6
-    });
+  var pieces = [];
+  var colors = ['#2e86c1','#f1c40f','#e74c3c','#2ecc71','#9b59b6','#e67e22','#1abc9c'];
+  for (var i = 0; i < 120; i++) {
+    pieces.push({x:Math.random()*canvas.width,y:-20-Math.random()*200,w:6+Math.random()*6,h:12+Math.random()*8,color:colors[Math.floor(Math.random()*colors.length)],vy:2+Math.random()*3,vx:-1+Math.random()*2,rot:Math.random()*360,rv:-3+Math.random()*6});
   }
-  let frame = 0;
+  var frame = 0;
   function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    pieces.forEach(p => {
-      p.y += p.vy;
-      p.x += p.vx;
-      p.rot += p.rv;
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.rot * Math.PI / 180);
-      ctx.fillStyle = p.color;
-      ctx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
-      ctx.restore();
-    });
-    frame++;
-    if (frame < 180) requestAnimationFrame(draw);
-    else ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    for(var i=0;i<pieces.length;i++){var p=pieces[i];p.y+=p.vy;p.x+=p.vx;p.rot+=p.rv;ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot*Math.PI/180);ctx.fillStyle=p.color;ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h);ctx.restore();}
+    if(++frame<180) requestAnimationFrame(draw);
+    else ctx.clearRect(0,0,canvas.width,canvas.height);
   }
   draw();
 }
