@@ -2465,7 +2465,15 @@ async function submitWritingToAI(){
   let p=CQ.prompt;let wt=WRITING_TYPES[CQ.writingType];let s=S.english.writing;
   let lvNames={1:'beginner (Year 5-6, age 10-11)',2:'intermediate (Year 7-8, age 11-13)',3:'advanced (Year 8-9, age 13-14)'};
   let SC=document.getElementById('SC');
-  SC.innerHTML='<div class="cd" style="text-align:center"><h2>AI Teacher is reading your writing...</h2><div class="ds">Using '+(DB.settings.provider==='gemini'?'Google Gemini':'Claude')+' ('+DB.settings.model+'). Checking grammar, structure, ideas, and vocabulary.</div><div class="pb"><div class="pf" style="width:60%"></div></div><div style="margin-top:16px;color:var(--t2);font-size:13px">This usually takes 10-20 seconds.</div></div>';
+  SC.innerHTML='<div id="wrProgress"></div>';
+  startProgress('wrProgress','Your AI teacher is reading your writing',[
+    'Reading what you wrote...',
+    'Checking your spelling and punctuation...',
+    'Looking at your sentences and paragraphs...',
+    'Thinking about your ideas and vocabulary...',
+    'Working out what you did well...',
+    'Writing your feedback...'
+  ],20);
   let aiPrompt='You are a supportive English teacher for a '+lvNames[s.lv]+' student who learns best with clear, direct language. Use explicit instructions. Avoid figurative language or idioms.\n\nThe student wrote a '+wt.name.toLowerCase()+' for this assignment:\nTitle: "'+p.title+'"\nInstructions: "'+p.inst+'"\n\nStudent wrote:\n---\n'+text+'\n---\n\nAnalyse and return ONLY a JSON object:\n{"overall_score":<0-100>,"scores":{"grammar":{"score":<0-100>,"comment":"<1-2 sentences>"},"spelling":{"score":<0-100>,"comment":"<1-2 sentences>"},"structure":{"score":<0-100>,"comment":"<1-2 sentences>"},"ideas":{"score":<0-100>,"comment":"<1-2 sentences>"},"vocabulary":{"score":<0-100>,"comment":"<1-2 sentences>"}},"strengths":["<specific strength>","<another>"],"errors":[{"original":"<exact text>","corrected":"<fixed version>","rule":"<rule explained simply>"}],"corrected_version":"<full corrected text>","improvement_tips":["<tip 1>","<tip 2>","<tip 3>"],"next_focus":"<one specific area to practise next>","encouragement":"<warm encouraging sentence>"}';
   try{
     let respText=await callAI(aiPrompt,3000);
@@ -2531,6 +2539,90 @@ async function generateAIWritingPrompt(typeKey){
   let recentAI=S.wr.filter(function(w){return w.mode==='ai'&&w.aiFeedback;});
   let focusArea=recentAI.length>0?(recentAI[recentAI.length-1].aiFeedback.next_focus||'general writing skills'):'general writing skills';
   await generateAdaptivePrompt(typeKey,focusArea);
+}
+
+// =====================================================
+// === PROGRESS FEEDBACK ===============================
+// Long AI calls (30-60s) look frozen without this. Shows
+// a stage message that advances, a bar that creeps toward
+// 95% over the expected duration, and an elapsed counter
+// so it is obvious the app is still working.
+// =====================================================
+var PROG={timer:null,start:0,steps:[],idx:0,estSec:40,el:null,compact:false};
+
+function startProgress(elementId,title,steps,estSec,compact){
+  stopProgress();
+  var el=document.getElementById(elementId);
+  if(!el)return;
+  PROG.el=el;PROG.steps=steps||['Working...'];PROG.idx=0;
+  PROG.estSec=estSec||40;PROG.start=Date.now();PROG.compact=!!compact;
+
+  if(compact){
+    el.innerHTML='<div style="padding:12px;background:var(--wl);border-radius:var(--r)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">'
+      +'<strong id="progStep" style="font-size:14px;color:#92400e">'+PROG.steps[0]+'</strong>'
+      +'<span id="progTime" style="font-size:12px;color:#92400e;font-variant-numeric:tabular-nums">0s</span></div>'
+      +'<div style="height:6px;background:rgba(0,0,0,.08);border-radius:3px;margin-top:8px;overflow:hidden">'
+      +'<div id="progBar" style="height:100%;width:2%;background:var(--p);border-radius:3px;transition:width .6s ease"></div></div>'
+      +'</div>';
+  } else {
+    el.innerHTML='<div class="cd" style="text-align:center">'
+      +'<h2>'+title+'</h2>'
+      +'<div class="ds" id="progStep" style="min-height:22px">'+PROG.steps[0]+'</div>'
+      +'<div class="pb" style="margin-top:14px"><div class="pf" id="progBar" style="width:2%;transition:width .6s ease"></div></div>'
+      +'<div style="margin-top:12px;font-size:13px;color:var(--t2)">'
+      +'<span id="progTime">0s</span> elapsed &middot; usually takes about '+PROG.estSec+string_s(PROG.estSec)+'</div>'
+      +'<div style="margin-top:6px;font-size:12px;color:var(--t2)">Please keep this screen open.</div>'
+      +'</div>';
+  }
+
+  PROG.timer=setInterval(tickProgress,1000);
+  tickProgress();
+}
+
+function string_s(n){return 's';}
+
+function tickProgress(){
+  if(!PROG.el)return;
+  // If the screen moved on and our element is gone from the page, stop.
+  // Guarantees the interval cannot outlive its UI on any code path.
+  if(!document.body.contains(PROG.el)){stopProgress();return;}
+  var elapsed=Math.floor((Date.now()-PROG.start)/1000);
+  var t=document.getElementById('progTime');
+  if(t)t.textContent=elapsed+'s';
+
+  // Creep toward 95% over the estimate, then inch along so it never
+  // sits still even if the call runs long.
+  var frac=Math.min(elapsed/PROG.estSec,1);
+  var pct=frac<1?(2+frac*88):(90+Math.min(5,(elapsed-PROG.estSec)*0.3));
+  var bar=document.getElementById('progBar');
+  if(bar)bar.style.width=Math.min(95,pct)+'%';
+
+  // Advance the stage message across the expected duration
+  var target=Math.min(PROG.steps.length-1,Math.floor(frac*PROG.steps.length));
+  if(target!==PROG.idx){
+    PROG.idx=target;
+    var s=document.getElementById('progStep');
+    if(s)s.textContent=PROG.steps[PROG.idx];
+  }
+
+  // Reassure if it is taking unusually long
+  if(elapsed===PROG.estSec+20){
+    var s2=document.getElementById('progStep');
+    if(s2)s2.textContent='Still working — a longer paper can take a little more time...';
+  }
+}
+
+function stopProgress(){
+  if(PROG.timer){clearInterval(PROG.timer);PROG.timer=null;}
+  PROG.el=null;
+}
+
+// Fills the bar to 100% briefly so the transition feels finished
+function completeProgress(){
+  var bar=document.getElementById('progBar');
+  if(bar)bar.style.width='100%';
+  stopProgress();
 }
 
 // =====================================================
@@ -2627,7 +2719,18 @@ async function startAssignment(subj,topic){
   var lvNames={1:'beginner (Year 5-6)',2:'intermediate (Year 7-8)',3:'advanced (Year 8-9)',4:'expert (Year 9-10)',5:'master (Year 10-11)'};
   var label=asgTopicLabel(subj,topic);
 
-  SC.innerHTML='<div class="cd" style="text-align:center"><h2>Building your assignment...</h2><div class="ds">'+label+' &middot; Level '+s.lv+'</div><div class="pb"><div class="pf" style="width:45%"></div></div><div style="margin-top:14px;color:var(--t2);font-size:13px">Choosing questions based on your past work. This takes 20-40 seconds.</div></div>';
+  SC.innerHTML='<div id="asgProgress"></div>';
+  startProgress('asgProgress','Building your '+label+' assignment',[
+    'Checking your current level ('+s.lv+')...',
+    'Looking at questions you found tricky before...',
+    'Choosing what to test you on...',
+    'Writing the multiple choice questions...',
+    'Writing the questions that need working out...',
+    'Writing the longer problems...',
+    'Checking every question reads clearly...',
+    'Putting the paper in order, easiest first...',
+    'Almost ready...'
+  ],40);
 
   var learnerCtx=(typeof buildLearnerContext==='function')?buildLearnerContext(subj,topic):'';
 
@@ -2676,8 +2779,10 @@ async function startAssignment(subj,topic){
     if(S.assignments.length>30)S.assignments=S.assignments.slice(-30);
     sv();
     uploadFullProgress();
+    completeProgress();
     openAssignmentPaper(asg.id);
   }catch(e){
+    stopProgress();
     SC.innerHTML='<div class="cd"><h2>Could not build the assignment</h2><div class="ds" style="color:var(--e)">'+e.message+'</div>'
       +'<div style="margin-top:14px"><button class="bt bp" onclick="startAssignment(\''+subj+'\',\''+topic+'\')">Try Again</button> '
       +'<button class="bt bg" onclick="openAssignments()">Back</button></div></div>';
@@ -2859,8 +2964,14 @@ async function submitAssignmentTyped(){
   }
   stopAsgTimer();
 
-  var status=document.getElementById('asgStatus');
-  if(status)status.innerHTML='<div style="padding:10px;background:var(--wl);border-radius:var(--r)">Marking your paper...</div>';
+  startProgress('asgStatus','',[
+    'Marking your multiple choice answers...',
+    'Reading your written answers...',
+    'Checking your working out...',
+    'Deciding where to give part marks...',
+    'Writing your feedback...',
+    'Working out what to practise next...'
+  ],30,true);
 
   // Mark the multiple choice ourselves — it is exact and costs nothing
   var autoMarked=[],needAI=[];
@@ -2899,6 +3010,7 @@ async function submitAssignmentTyped(){
     }
   }
 
+  completeProgress();
   finishAssignmentMarking(autoMarked,aiMarked,null);
 }
 
@@ -2913,7 +3025,16 @@ async function submitAssignmentUpload(input){
     input.value='';return;
   }
   stopAsgTimer();
-  if(status)status.innerHTML='<div style="padding:10px;background:var(--wl);border-radius:var(--r)">Reading your work and marking it. This can take up to a minute...</div>';
+  startProgress('asgStatus','',[
+    'Opening your file...',
+    'Sending your work to be marked...',
+    'Reading your handwriting...',
+    'Matching what you wrote to each question...',
+    'Checking your working out...',
+    'Deciding where to give part marks...',
+    'Writing your feedback...',
+    'Nearly done...'
+  ],55,true);
 
   var reader=new FileReader();
   reader.onload=async function(ev){
@@ -2938,12 +3059,16 @@ async function submitAssignmentUpload(input){
       var res=await callAIWithFile(prompt,dataUrl,4000);
       var marked=parseAIJSON(res);
       if(!Array.isArray(marked)) throw new Error('Unexpected marking format');
+      completeProgress();
       finishAssignmentMarking([],marked,dataUrl);
     }catch(e){
+      stopProgress();
       var msg=e.message==='UNSUPPORTED_FILE'
         ? 'That file type cannot be read visually. Please upload a photo (JPG/PNG) or a PDF.'
         : 'Marking failed: '+e.message;
-      if(status)status.innerHTML='<div style="padding:10px;background:var(--el);border-radius:var(--r);color:var(--e)">'+msg+'</div>';
+      var st2=document.getElementById('asgStatus');
+      if(st2)st2.innerHTML='<div style="padding:10px;background:var(--el);border-radius:var(--r);color:var(--e)">'+msg+'</div>'
+        +'<div style="margin-top:8px"><button class="bt bp" onclick="document.getElementById(\'asgUpload\').click()">Try Again</button></div>';
     }
     input.value='';
   };
@@ -3648,7 +3773,15 @@ async function submitFreeWriting(){
   if(!hasAIKey()){alert('Please set your API key in the Parent Dashboard first.');return;}
   var s=S.english.writing;
   var SC=document.getElementById('SC');
-  SC.innerHTML='<div class="cd" style="text-align:center"><h2>AI Teacher is reading your writing...</h2><div class="ds">Checking grammar, structure, ideas, vocabulary, and style.</div><div class="pb"><div class="pf" style="width:60%"></div></div><div style="margin-top:16px;color:var(--t2);font-size:13px">This usually takes 10-20 seconds.</div></div>';
+  SC.innerHTML='<div id="wrProgress2"></div>';
+  startProgress('wrProgress2','Your AI teacher is reading your writing',[
+    'Reading what you wrote...',
+    'Checking your spelling and punctuation...',
+    'Looking at your sentences and paragraphs...',
+    'Thinking about your ideas and vocabulary...',
+    'Working out what you did well...',
+    'Writing your feedback...'
+  ],20);
 
   var lvNames={1:'beginner (Year 5-6, age 10-11)',2:'intermediate (Year 7-8)',3:'advanced (Year 8-9)',4:'expert (Year 9-10)',5:'master (Year 10-11)'};
   var assignment=window._freeWritingCurrentAssignment;
@@ -3867,10 +4000,19 @@ Return ONLY a JSON array with no extra text before or after. Each question must 
 "cor" is the 0-based index of the correct answer.`;
 
   let SC=document.getElementById('SC');
-  SC.innerHTML=`<div class="cd" style="text-align:center"><h2>Generating new questions...</h2><div class="ds">Using ${DB.settings.provider==='gemini'?'Google Gemini':'Claude'} (${DB.settings.model})</div><div class="pb"><div class="pf" style="width:50%"></div></div></div>`;
+  SC.innerHTML='<div id="genProgress"></div>';
+  startProgress('genProgress','Making new questions for you',[
+    'Checking what level you are on...',
+    'Looking at what you got wrong last time...',
+    'Writing questions that practise those skills...',
+    'Making the answer choices...',
+    'Writing the explanations...',
+    'Almost ready...'
+  ],20);
 
   try{
     let text=await callAI(prompt,1500);
+    completeProgress();
     let match=text.match(/\[[\s\S]*\]/);
     if(!match)throw new Error('Could not parse AI response');
     let qs=JSON.parse(match[0]);
