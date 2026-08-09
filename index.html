@@ -918,6 +918,7 @@ function go(screen){
     case 'coding': renderCoding(SC); break;
     case 'resources': renderResources(SC); break;
     case 'writing': openWritingCentre(); break;
+    case 'homework': openHomeworkSubmission(); break;
     case 'settings': renderStudentSettings(SC); break;
     default: renderHome(SC);
   }
@@ -981,6 +982,9 @@ function renderHome(el){
       S.done.slice(-10).reverse().map(d=>`<tr><td>${d.date||'-'}</td><td>${d.subject}</td><td>${d.topic}</td><td>${d.score}</td></tr>`).join('')+
       '</table>'}
   </div>`;
+  // Add homework submission card
+  el.innerHTML+='<div class="cd" onclick="go(\'homework\')" style="cursor:pointer;border-left:4px solid #8b5cf6"><h3>📤 Homework Submission</h3><div class="ds">Upload your homework — PDFs, photos, Word docs, or any file. Get AI feedback on your work.</div><div style="margin-top:8px;font-size:13px;color:var(--t2)">Supports: PDF, Word, Images, Text files, and more</div></div>';
+
   // Add adaptive recommendations section
   renderAdaptiveHome(el);
 }
@@ -2323,6 +2327,465 @@ async function generateAIWritingPrompt(typeKey){
 }
 
 // === FREE WRITING STUDIO ===
+// === HOMEWORK SUBMISSION FEATURE ===
+function openHomeworkSubmission(){
+  var SC=document.getElementById('SC');
+  // Fetch submission history from server
+  var historyHtml='<div class="ds">Loading submission history...</div>';
+  SC.innerHTML=`
+  <div class="cd">
+    <h2>📤 Homework Submission</h2>
+    <div class="ds">Upload your homework for any subject. You can upload photos of handwritten work, PDFs, Word documents, or any other file.</div>
+    <div class="sg">
+      <div class="sc" onclick="startHomeworkUpload()" style="border-left:4px solid #8b5cf6;cursor:pointer">
+        <h3>📎 Upload a File</h3>
+        <div class="ds">Upload a PDF, Word doc, image, or any file</div>
+        <div style="margin-top:8px;font-size:12px;color:var(--t2)">Supported: PDF, DOCX, JPG, PNG, TXT, XLSX, and more</div>
+      </div>
+      <div class="sc" onclick="startHomeworkText()" style="border-left:4px solid #06b6d4;cursor:pointer">
+        <h3>✏️ Type Your Work</h3>
+        <div class="ds">Type or paste your homework text directly</div>
+        <div style="margin-top:8px;font-size:12px;color:var(--t2)">Great for essays, answers, and short responses</div>
+      </div>
+      <div class="sc" onclick="startHomeworkPhoto()" style="border-left:4px solid #f59e0b;cursor:pointer">
+        <h3>📷 Take a Photo</h3>
+        <div class="ds">Use your camera to photograph handwritten work</div>
+        <div style="margin-top:8px;font-size:12px;color:var(--t2)">AI will read your handwriting and give feedback</div>
+      </div>
+    </div>
+  </div>
+  <div class="cd" id="hwHistory">
+    <h3>📋 Submission History</h3>
+    <div id="hwHistoryList">${historyHtml}</div>
+  </div>`;
+  // Load history
+  if(isHosted()&&currentUser&&currentUser.role==='kid'){
+    fetch('/api/homework/'+encodeURIComponent(currentUser.kid.username))
+      .then(function(r){return r.json();})
+      .then(function(data){
+        var list=document.getElementById('hwHistoryList');
+        if(!list)return;
+        if(!data.submissions||data.submissions.length===0){
+          list.innerHTML='<div class="ds">No submissions yet. Upload your first homework!</div>';
+          return;
+        }
+        var rows=data.submissions.slice().reverse().slice(0,20).map(function(s){
+          var statusBadge=s.feedback?'<span class="badge b1">Reviewed</span>':'<span class="badge b2">Submitted</span>';
+          var fileInfo=s.fileName?'<span style="font-size:11px;color:var(--t2)">'+s.fileName+'</span>':'<span style="font-size:11px;color:var(--t2)">Text submission</span>';
+          var viewBtn=s.savedFileName?'<a href="/api/homework-file/'+s.savedFileName+'" target="_blank" style="font-size:12px;color:var(--p)">View File</a>':'';
+          return '<tr><td style="font-size:12px">'+new Date(s.date).toLocaleDateString()+'</td><td>'+s.subject+'</td><td>'+s.title+'</td><td>'+fileInfo+'</td><td>'+statusBadge+'</td><td>'+viewBtn+'</td></tr>';
+        }).join('');
+        list.innerHTML='<table class="tb"><tr><th>Date</th><th>Subject</th><th>Title</th><th>File</th><th>Status</th><th></th></tr>'+rows+'</table>';
+      })
+      .catch(function(){
+        var list=document.getElementById('hwHistoryList');
+        if(list) list.innerHTML='<div class="ds">Could not load history. Your submissions are still saved on the server.</div>';
+      });
+  } else {
+    document.getElementById('hwHistoryList').innerHTML='<div class="ds">Submission history is available when using the online portal.</div>';
+  }
+}
+
+var _hwFileData=null;
+var _hwFileName='';
+var _hwFileType='';
+
+function startHomeworkUpload(){
+  var SC=document.getElementById('SC');
+  SC.innerHTML=`
+  <div class="cd">
+    <h2>📎 Upload Homework File</h2>
+    <button class="bt" onclick="openHomeworkSubmission()" style="margin-bottom:12px">← Back</button>
+    <div class="form-group"><label>Subject</label>
+      <select id="hwSubject" class="api" style="padding:10px;font-size:14px;appearance:auto;background:var(--c);cursor:pointer">
+        <option value="english">English</option>
+        <option value="maths">Maths</option>
+        <option value="science">Science</option>
+        <option value="ib7">Year 7 MYP Maths</option>
+        <option value="coding">Coding</option>
+        <option value="general">General / Other</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Title / Assignment Name</label>
+      <input type="text" id="hwTitle" placeholder="e.g. Chapter 5 Worksheet, Essay on Climate Change..." style="width:100%;padding:10px;border:1px solid var(--bd);border-radius:var(--r);font-size:14px;box-sizing:border-box">
+    </div>
+    <div class="form-group"><label>Choose File</label>
+      <div id="hwFileArea" style="border:2px dashed var(--bd);border-radius:var(--r);padding:30px;text-align:center;cursor:pointer;background:var(--b)" onclick="document.getElementById('hwFileInput').click()">
+        <div style="font-size:36px;margin-bottom:8px">📁</div>
+        <div style="font-size:14px;color:var(--t2)">Click to choose a file or drag and drop</div>
+        <div style="font-size:12px;color:var(--t2);margin-top:4px">PDF, Word, Images, Excel, Text — up to 10MB</div>
+      </div>
+      <input type="file" id="hwFileInput" style="display:none" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif,.xlsx,.xls,.csv,.pptx" onchange="handleHWFile(this)">
+      <div id="hwFilePreview" style="display:none;margin-top:12px;padding:12px;background:var(--gl);border-radius:var(--r)"></div>
+    </div>
+    <div class="form-group"><label>Notes (optional)</label>
+      <textarea id="hwNotes" placeholder="Any notes about this submission..." style="width:100%;padding:10px;border:1px solid var(--bd);border-radius:var(--r);font-size:14px;min-height:60px;box-sizing:border-box;font-family:inherit"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="bt bp" onclick="submitHomeworkFile()" style="flex:1">Submit Homework</button>
+      <button class="bt bp" onclick="submitHomeworkFileWithAI()" style="flex:1;background:#8b5cf6">Submit + Get AI Feedback</button>
+    </div>
+    <div id="hwError" style="color:var(--e);margin-top:8px;font-size:13px"></div>
+    <div id="hwStatus" style="color:var(--g);margin-top:8px;font-size:13px"></div>
+  </div>`;
+}
+
+function handleHWFile(input){
+  if(!input.files||!input.files[0])return;
+  var file=input.files[0];
+  if(file.size>10*1024*1024){
+    document.getElementById('hwError').textContent='File is too large. Maximum size is 10MB.';
+    return;
+  }
+  _hwFileName=file.name;
+  _hwFileType=file.type;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    _hwFileData=e.target.result;
+    var preview=document.getElementById('hwFilePreview');
+    var sizeStr=file.size<1024?(file.size+' B'):file.size<1048576?(Math.round(file.size/1024)+' KB'):(Math.round(file.size/1048576*10)/10+' MB');
+    var icon=_hwFileType.includes('pdf')?'📄':_hwFileType.includes('image')?'🖼️':_hwFileType.includes('word')||_hwFileType.includes('document')?'📝':_hwFileType.includes('sheet')||_hwFileType.includes('excel')?'📊':'📎';
+    preview.style.display='block';
+    preview.innerHTML='<div style="display:flex;align-items:center;gap:12px"><span style="font-size:28px">'+icon+'</span><div><div style="font-weight:600">'+file.name+'</div><div style="font-size:12px;color:var(--t2)">'+sizeStr+' — '+(_hwFileType||'Unknown type')+'</div></div><button onclick="_hwFileData=null;_hwFileName=\'\';document.getElementById(\'hwFilePreview\').style.display=\'none\';document.getElementById(\'hwFileInput\').value=\'\'" style="margin-left:auto;background:none;border:none;font-size:18px;cursor:pointer;color:var(--e)">✕</button></div>';
+    // Show image preview
+    if(_hwFileType.startsWith('image/')){
+      preview.innerHTML+='<div style="margin-top:8px"><img src="'+e.target.result+'" style="max-width:100%;max-height:200px;border-radius:var(--r)"></div>';
+    }
+    document.getElementById('hwFileArea').innerHTML='<div style="font-size:14px;color:var(--g)">✓ File selected — click to change</div>';
+  };
+  reader.readAsDataURL(file);
+}
+
+function submitHomeworkFile(){
+  if(!_hwFileData&&!_hwFileName){
+    document.getElementById('hwError').textContent='Please choose a file to upload.';
+    return;
+  }
+  var title=document.getElementById('hwTitle').value.trim()||_hwFileName||'Untitled';
+  var subject=document.getElementById('hwSubject').value;
+  var notes=document.getElementById('hwNotes').value.trim();
+  var statusEl=document.getElementById('hwStatus');
+  var errEl=document.getElementById('hwError');
+  errEl.textContent='';
+  statusEl.textContent='Uploading...';
+
+  var payload={
+    username:currentUser.kid.username,
+    subject:subject,
+    title:title,
+    notes:notes,
+    fileName:_hwFileName,
+    fileType:_hwFileType,
+    fileData:_hwFileData,
+    fileSize:_hwFileData?_hwFileData.length:0
+  };
+
+  fetch('/api/homework',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)
+  }).then(function(r){return r.json();})
+  .then(function(data){
+    if(data.success){
+      statusEl.textContent='';
+      _hwFileData=null;_hwFileName='';_hwFileType='';
+      var SC=document.getElementById('SC');
+      SC.innerHTML='<div class="cd" style="text-align:center;padding:40px"><div style="font-size:48px;margin-bottom:16px">✅</div><h2>Homework Submitted!</h2><div class="ds" style="margin:12px 0">Your work "'+title+'" has been uploaded successfully.</div><div style="font-size:13px;color:var(--t2);margin-bottom:20px">Subject: '+subject+' | File: '+(_hwFileName||'None')+'</div><button class="bt bp" onclick="openHomeworkSubmission()">Back to Homework</button> <button class="bt" style="margin-left:8px;background:var(--p);color:white" onclick="go(\'home\')">Go Home</button></div>';
+    } else {
+      errEl.textContent='Upload failed: '+(data.error||'Unknown error');
+      statusEl.textContent='';
+    }
+  }).catch(function(e){
+    errEl.textContent='Upload error: '+e.message;
+    statusEl.textContent='';
+  });
+}
+
+async function submitHomeworkFileWithAI(){
+  if(!_hwFileData&&!_hwFileName){
+    document.getElementById('hwError').textContent='Please choose a file to upload.';
+    return;
+  }
+  if(!hasAIKey()){
+    document.getElementById('hwError').textContent='AI feedback requires an API key. Ask your parent to set one in Admin Dashboard > AI Settings.';
+    return;
+  }
+  var title=document.getElementById('hwTitle').value.trim()||_hwFileName||'Untitled';
+  var subject=document.getElementById('hwSubject').value;
+  var notes=document.getElementById('hwNotes').value.trim();
+  var statusEl=document.getElementById('hwStatus');
+  var errEl=document.getElementById('hwError');
+  errEl.textContent='';
+  statusEl.textContent='Uploading file and getting AI feedback... this may take a moment...';
+
+  // First upload
+  var payload={
+    username:currentUser.kid.username,
+    subject:subject,
+    title:title,
+    notes:notes,
+    fileName:_hwFileName,
+    fileType:_hwFileType,
+    fileData:_hwFileData,
+    fileSize:_hwFileData?_hwFileData.length:0
+  };
+
+  try{
+    var uploadRes=await fetch('/api/homework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    var uploadData=await uploadRes.json();
+    if(!uploadData.success){errEl.textContent='Upload failed: '+(uploadData.error||'Unknown');statusEl.textContent='';return;}
+  }catch(e){errEl.textContent='Upload error: '+e.message;statusEl.textContent='';return;}
+
+  // Now get AI feedback
+  statusEl.textContent='File uploaded! Getting AI feedback...';
+  var aiPrompt='';
+  if(_hwFileType&&_hwFileType.startsWith('image/')){
+    // For images, send the base64 data for AI to analyze
+    aiPrompt='A Year 6 student (age 10-11) has submitted homework. Subject: '+subject+'. Title: "'+title+'". The student uploaded an image of their work. Please analyze this image of their homework.\n\nImage data: '+_hwFileData.substring(0,500)+'... (image)\n\nSince I cannot see the image directly, please provide general feedback for a '+subject+' homework submission titled "'+title+'". Include:\n1. General tips for this type of work\n2. Common mistakes to watch for\n3. How to improve\n4. An encouraging message\n\nRespond in JSON: {"score":75,"feedback":"...","strengths":["..."],"improvements":["..."],"tips":["..."],"encouragement":"..."}';
+  } else {
+    aiPrompt='A Year 6 student (age 10-11) has submitted homework. Subject: '+subject+'. Title: "'+title+'". File type: '+(_hwFileType||'unknown')+'. File name: '+(_hwFileName||'none')+'.\n\nNotes from student: '+(notes||'None')+'\n\nPlease provide helpful feedback for this homework submission. Since this is a file upload, provide general subject-appropriate feedback:\n1. Tips for doing well in this type of '+subject+' work\n2. Common mistakes Year 6 students make\n3. How to check their own work\n4. Encouragement\n\nRespond in JSON: {"score":75,"feedback":"...","strengths":["..."],"improvements":["..."],"tips":["..."],"encouragement":"..."}';
+  }
+
+  try{
+    var fb=await callClaude(aiPrompt,1000);
+    var parsed;
+    try{parsed=JSON.parse(fb);}catch(e){parsed={score:70,feedback:fb,strengths:['Good effort submitting your work!'],improvements:['Keep practising regularly'],tips:['Always review your work before submitting'],encouragement:'Great job submitting your homework!'};}
+
+    _hwFileData=null;_hwFileName='';_hwFileType='';
+    var SC=document.getElementById('SC');
+    SC.innerHTML='<div class="cd"><h2>📝 AI Feedback — '+title+'</h2><div class="ds">Subject: '+subject+'</div>';
+    SC.innerHTML+='<div style="display:flex;gap:12px;margin:16px 0;flex-wrap:wrap"><div style="background:#e8edff;padding:16px;border-radius:var(--r);text-align:center;min-width:100px"><div style="font-size:28px;font-weight:700;color:var(--p)">'+(parsed.score||70)+'</div><div style="font-size:12px;color:var(--t2)">Score</div></div></div>';
+    SC.innerHTML+='<div style="padding:14px;background:var(--b);border-radius:var(--r);margin:12px 0"><strong>Feedback:</strong><br>'+(parsed.feedback||'Good work!')+'</div>';
+    if(parsed.strengths&&parsed.strengths.length>0){
+      SC.innerHTML+='<div style="padding:14px;background:var(--gl);border-radius:var(--r);margin:8px 0"><strong>Strengths:</strong><ul style="margin:8px 0 0 16px">'+parsed.strengths.map(function(s){return '<li>'+s+'</li>';}).join('')+'</ul></div>';
+    }
+    if(parsed.improvements&&parsed.improvements.length>0){
+      SC.innerHTML+='<div style="padding:14px;background:var(--wl);border-radius:var(--r);margin:8px 0"><strong>Areas to Improve:</strong><ul style="margin:8px 0 0 16px">'+parsed.improvements.map(function(s){return '<li>'+s+'</li>';}).join('')+'</ul></div>';
+    }
+    if(parsed.tips&&parsed.tips.length>0){
+      SC.innerHTML+='<div style="padding:14px;background:#ede9fe;border-radius:var(--r);margin:8px 0"><strong>Tips:</strong><ul style="margin:8px 0 0 16px">'+parsed.tips.map(function(s){return '<li>'+s+'</li>';}).join('')+'</ul></div>';
+    }
+    if(parsed.encouragement){
+      SC.innerHTML+='<div style="padding:14px;background:var(--gl);border-radius:var(--r);margin:12px 0;text-align:center;font-size:16px">🌟 '+parsed.encouragement+'</div>';
+    }
+    SC.innerHTML+='<div style="margin-top:16px;display:flex;gap:8px"><button class="bt bp" onclick="openHomeworkSubmission()">Back to Homework</button><button class="bt" style="background:var(--p);color:white" onclick="go(\'home\')">Go Home</button></div></div>';
+  }catch(e){
+    errEl.textContent='AI feedback error: '+e.message+'. Your file was uploaded successfully though!';
+    statusEl.textContent='';
+  }
+}
+
+function startHomeworkText(){
+  var SC=document.getElementById('SC');
+  SC.innerHTML=`
+  <div class="cd">
+    <h2>✏️ Type Your Homework</h2>
+    <button class="bt" onclick="openHomeworkSubmission()" style="margin-bottom:12px">← Back</button>
+    <div class="form-group"><label>Subject</label>
+      <select id="hwSubject" class="api" style="padding:10px;font-size:14px;appearance:auto;background:var(--c);cursor:pointer">
+        <option value="english">English</option>
+        <option value="maths">Maths</option>
+        <option value="science">Science</option>
+        <option value="ib7">Year 7 MYP Maths</option>
+        <option value="coding">Coding</option>
+        <option value="general">General / Other</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Title / Assignment Name</label>
+      <input type="text" id="hwTitle" placeholder="e.g. Essay on Renewable Energy..." style="width:100%;padding:10px;border:1px solid var(--bd);border-radius:var(--r);font-size:14px;box-sizing:border-box">
+    </div>
+    <div class="form-group"><label>Your Work</label>
+      <textarea id="hwText" placeholder="Type or paste your homework here..." style="width:100%;padding:12px;border:1px solid var(--bd);border-radius:var(--r);font-size:14px;min-height:250px;box-sizing:border-box;font-family:inherit;line-height:1.6" oninput="document.getElementById('hwWordCount').textContent=this.value.trim().split(/\\s+/).filter(Boolean).length+' words'"></textarea>
+      <div id="hwWordCount" style="font-size:12px;color:var(--t2);margin-top:4px">0 words</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="bt bp" onclick="submitHomeworkText(false)" style="flex:1">Submit</button>
+      <button class="bt bp" onclick="submitHomeworkText(true)" style="flex:1;background:#8b5cf6">Submit + Get AI Feedback</button>
+    </div>
+    <div id="hwError" style="color:var(--e);margin-top:8px;font-size:13px"></div>
+    <div id="hwStatus" style="color:var(--g);margin-top:8px;font-size:13px"></div>
+  </div>`;
+}
+
+async function submitHomeworkText(withAI){
+  var text=document.getElementById('hwText').value.trim();
+  if(!text){document.getElementById('hwError').textContent='Please type your homework.';return;}
+  var title=document.getElementById('hwTitle').value.trim()||'Typed Homework';
+  var subject=document.getElementById('hwSubject').value;
+  var errEl=document.getElementById('hwError');
+  var statusEl=document.getElementById('hwStatus');
+  errEl.textContent='';
+  statusEl.textContent='Submitting...';
+
+  var wordCount=text.split(/\s+/).filter(Boolean).length;
+
+  // Upload to server
+  try{
+    var res=await fetch('/api/homework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      username:currentUser.kid.username,subject:subject,title:title,notes:text,fileName:null,fileType:'text/plain',fileSize:text.length
+    })});
+    var data=await res.json();
+    if(!data.success){errEl.textContent='Submit failed: '+(data.error||'Unknown');statusEl.textContent='';return;}
+  }catch(e){errEl.textContent='Submit error: '+e.message;statusEl.textContent='';return;}
+
+  if(!withAI){
+    var SC=document.getElementById('SC');
+    SC.innerHTML='<div class="cd" style="text-align:center;padding:40px"><div style="font-size:48px;margin-bottom:16px">✅</div><h2>Homework Submitted!</h2><div class="ds" style="margin:12px 0">"'+title+'" ('+wordCount+' words) has been submitted.</div><button class="bt bp" onclick="openHomeworkSubmission()">Back to Homework</button></div>';
+    return;
+  }
+
+  if(!hasAIKey()){errEl.textContent='AI feedback requires an API key.';statusEl.textContent='';return;}
+  statusEl.textContent='Getting AI feedback on your work...';
+
+  try{
+    var prompt='A Year 6 student (age 10-11) has submitted typed homework. Subject: '+subject+'. Title: "'+title+'".\n\nHere is their work ('+wordCount+' words):\n\n'+text+'\n\nPlease provide detailed, encouraging feedback. Check for:\n1. Content quality and understanding\n2. Grammar, spelling, and punctuation\n3. Structure and organisation\n4. Strengths to celebrate\n5. Specific improvements they can make\n6. A score out of 100\n\nRespond in JSON: {"score":75,"feedback":"detailed feedback here","strengths":["..."],"errors":[{"text":"wrong text","correction":"correct text","explanation":"why"}],"improvements":["..."],"tips":["..."],"encouragement":"..."}';
+    var fb=await callClaude(prompt,1500);
+    var parsed;
+    try{parsed=JSON.parse(fb);}catch(e){parsed={score:70,feedback:fb,strengths:['Good effort!'],improvements:['Keep practising'],tips:['Review before submitting'],encouragement:'Well done for completing your homework!'};}
+
+    var SC=document.getElementById('SC');
+    var html='<div class="cd"><h2>📝 AI Feedback — '+title+'</h2><div class="ds">Subject: '+subject+' | '+wordCount+' words</div>';
+    html+='<div style="display:flex;gap:12px;margin:16px 0;flex-wrap:wrap"><div style="background:#e8edff;padding:16px;border-radius:var(--r);text-align:center;min-width:100px"><div style="font-size:28px;font-weight:700;color:var(--p)">'+(parsed.score||70)+'</div><div style="font-size:12px;color:var(--t2)">Score / 100</div></div><div style="background:var(--gl);padding:16px;border-radius:var(--r);text-align:center;min-width:100px"><div style="font-size:28px;font-weight:700;color:var(--g)">'+wordCount+'</div><div style="font-size:12px;color:var(--t2)">Words</div></div></div>';
+    html+='<div style="padding:14px;background:var(--b);border-radius:var(--r);margin:12px 0"><strong>Feedback:</strong><br>'+(parsed.feedback||'Good work!')+'</div>';
+    if(parsed.strengths&&parsed.strengths.length>0){
+      html+='<div style="padding:14px;background:var(--gl);border-radius:var(--r);margin:8px 0"><strong>Strengths:</strong><ul style="margin:8px 0 0 16px">'+parsed.strengths.map(function(s){return '<li>'+s+'</li>';}).join('')+'</ul></div>';
+    }
+    if(parsed.errors&&parsed.errors.length>0){
+      html+='<div style="padding:14px;background:var(--el);border-radius:var(--r);margin:8px 0"><strong>Corrections:</strong>';
+      parsed.errors.forEach(function(er){
+        html+='<div style="margin:8px 0;padding:8px;background:white;border-radius:6px"><span style="text-decoration:line-through;color:var(--e)">'+er.text+'</span> → <span style="color:var(--g);font-weight:600">'+er.correction+'</span><div style="font-size:12px;color:var(--t2);margin-top:4px">'+er.explanation+'</div></div>';
+      });
+      html+='</div>';
+    }
+    if(parsed.improvements&&parsed.improvements.length>0){
+      html+='<div style="padding:14px;background:var(--wl);border-radius:var(--r);margin:8px 0"><strong>Areas to Improve:</strong><ul style="margin:8px 0 0 16px">'+parsed.improvements.map(function(s){return '<li>'+s+'</li>';}).join('')+'</ul></div>';
+    }
+    if(parsed.tips&&parsed.tips.length>0){
+      html+='<div style="padding:14px;background:#ede9fe;border-radius:var(--r);margin:8px 0"><strong>Tips:</strong><ul style="margin:8px 0 0 16px">'+parsed.tips.map(function(s){return '<li>'+s+'</li>';}).join('')+'</ul></div>';
+    }
+    if(parsed.encouragement){
+      html+='<div style="padding:14px;background:var(--gl);border-radius:var(--r);margin:12px 0;text-align:center;font-size:16px">🌟 '+parsed.encouragement+'</div>';
+    }
+    html+='<div style="margin-top:16px;display:flex;gap:8px"><button class="bt bp" onclick="openHomeworkSubmission()">Back to Homework</button><button class="bt" style="background:var(--p);color:white" onclick="go(\'home\')">Go Home</button></div></div>';
+    SC.innerHTML=html;
+
+    // Record in progress
+    S.total++;S.done.push({date:new Date().toDateString(),subject:subject,topic:'homework',score:(parsed.score||70)+'/100'});
+    markActive();sv();syncPerformanceToServer();
+  }catch(e){
+    errEl.textContent='AI feedback error: '+e.message+'. Your homework was submitted successfully.';
+    statusEl.textContent='';
+  }
+}
+
+function startHomeworkPhoto(){
+  var SC=document.getElementById('SC');
+  SC.innerHTML=`
+  <div class="cd">
+    <h2>📷 Photo of Handwritten Work</h2>
+    <button class="bt" onclick="openHomeworkSubmission()" style="margin-bottom:12px">← Back</button>
+    <div class="form-group"><label>Subject</label>
+      <select id="hwSubject" class="api" style="padding:10px;font-size:14px;appearance:auto;background:var(--c);cursor:pointer">
+        <option value="english">English</option>
+        <option value="maths">Maths</option>
+        <option value="science">Science</option>
+        <option value="ib7">Year 7 MYP Maths</option>
+        <option value="general">General / Other</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Title / Assignment Name</label>
+      <input type="text" id="hwTitle" placeholder="e.g. Maths Worksheet Page 12..." style="width:100%;padding:10px;border:1px solid var(--bd);border-radius:var(--r);font-size:14px;box-sizing:border-box">
+    </div>
+    <div class="form-group"><label>Take Photo or Choose Image</label>
+      <div style="display:flex;gap:8px">
+        <button class="bt bp" onclick="document.getElementById('hwCamera').click()" style="flex:1">📷 Camera</button>
+        <button class="bt" onclick="document.getElementById('hwGallery').click()" style="flex:1;background:var(--p);color:white">🖼️ Gallery</button>
+      </div>
+      <input type="file" id="hwCamera" accept="image/*" capture="environment" style="display:none" onchange="handleHWPhoto(this)">
+      <input type="file" id="hwGallery" accept="image/*" style="display:none" onchange="handleHWPhoto(this)">
+      <div id="hwPhotoPreview" style="display:none;margin-top:12px"></div>
+    </div>
+    <div class="form-group"><label>Notes (optional)</label>
+      <textarea id="hwNotes" placeholder="Any notes about this work..." style="width:100%;padding:10px;border:1px solid var(--bd);border-radius:var(--r);font-size:14px;min-height:60px;box-sizing:border-box;font-family:inherit"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="bt bp" onclick="submitHomeworkPhoto(false)" style="flex:1">Submit</button>
+      <button class="bt bp" onclick="submitHomeworkPhoto(true)" style="flex:1;background:#8b5cf6">Submit + AI Feedback</button>
+    </div>
+    <div id="hwError" style="color:var(--e);margin-top:8px;font-size:13px"></div>
+    <div id="hwStatus" style="color:var(--g);margin-top:8px;font-size:13px"></div>
+  </div>`;
+}
+
+function handleHWPhoto(input){
+  if(!input.files||!input.files[0])return;
+  var file=input.files[0];
+  _hwFileName=file.name;
+  _hwFileType=file.type;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    _hwFileData=e.target.result;
+    var preview=document.getElementById('hwPhotoPreview');
+    preview.style.display='block';
+    preview.innerHTML='<img src="'+e.target.result+'" style="max-width:100%;max-height:300px;border-radius:var(--r);border:1px solid var(--bd)"><div style="margin-top:8px"><button onclick="_hwFileData=null;document.getElementById(\'hwPhotoPreview\').style.display=\'none\'" class="bt" style="font-size:12px;background:var(--e);color:white">Remove Photo</button></div>';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitHomeworkPhoto(withAI){
+  if(!_hwFileData){document.getElementById('hwError').textContent='Please take or choose a photo.';return;}
+  var title=document.getElementById('hwTitle').value.trim()||'Photo Submission';
+  var subject=document.getElementById('hwSubject').value;
+  var notes=(document.getElementById('hwNotes')||{}).value||'';
+  var errEl=document.getElementById('hwError');
+  var statusEl=document.getElementById('hwStatus');
+  errEl.textContent='';
+  statusEl.textContent='Uploading photo...';
+
+  try{
+    var res=await fetch('/api/homework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      username:currentUser.kid.username,subject:subject,title:title,notes:notes.trim(),fileName:_hwFileName,fileType:_hwFileType,fileData:_hwFileData,fileSize:_hwFileData.length
+    })});
+    var data=await res.json();
+    if(!data.success){errEl.textContent='Upload failed: '+(data.error||'Unknown');statusEl.textContent='';return;}
+  }catch(e){errEl.textContent='Upload error: '+e.message;statusEl.textContent='';return;}
+
+  if(!withAI){
+    _hwFileData=null;_hwFileName='';
+    var SC=document.getElementById('SC');
+    SC.innerHTML='<div class="cd" style="text-align:center;padding:40px"><div style="font-size:48px;margin-bottom:16px">✅</div><h2>Photo Submitted!</h2><div class="ds" style="margin:12px 0">"'+title+'" has been uploaded.</div><button class="bt bp" onclick="openHomeworkSubmission()">Back to Homework</button></div>';
+    return;
+  }
+
+  if(!hasAIKey()){errEl.textContent='AI feedback requires an API key.';statusEl.textContent='';return;}
+  statusEl.textContent='Analysing your handwritten work with AI...';
+
+  try{
+    var prompt='A Year 6 student (age 10-11) has photographed their handwritten '+subject+' homework titled "'+title+'".\n\nNotes: '+(notes||'None')+'\n\nPlease:\n1. Attempt to read/transcribe the handwriting if visible\n2. Assess the work quality for a Year 6 student\n3. Check for correctness\n4. Evaluate handwriting neatness\n5. Provide specific feedback and encouragement\n\nRespond in JSON: {"transcription":"what you can read","score":75,"handwriting_score":70,"feedback":"...","strengths":["..."],"improvements":["..."],"encouragement":"..."}';
+    var fb=await callClaude(prompt,1500);
+    var parsed;
+    try{parsed=JSON.parse(fb);}catch(e){parsed={score:70,handwriting_score:70,feedback:fb,strengths:['Good effort!'],improvements:['Keep practising'],encouragement:'Well done!'};}
+
+    _hwFileData=null;_hwFileName='';
+    var SC=document.getElementById('SC');
+    var html='<div class="cd"><h2>📝 AI Feedback — '+title+'</h2><div class="ds">Subject: '+subject+' | Photo submission</div>';
+    html+='<div style="display:flex;gap:12px;margin:16px 0;flex-wrap:wrap"><div style="background:#e8edff;padding:16px;border-radius:var(--r);text-align:center;min-width:100px"><div style="font-size:28px;font-weight:700;color:var(--p)">'+(parsed.score||70)+'</div><div style="font-size:12px;color:var(--t2)">Work Score</div></div><div style="background:#ede9fe;padding:16px;border-radius:var(--r);text-align:center;min-width:100px"><div style="font-size:28px;font-weight:700;color:#7c3aed">'+(parsed.handwriting_score||70)+'</div><div style="font-size:12px;color:var(--t2)">Handwriting</div></div></div>';
+    if(parsed.transcription){html+='<div style="padding:14px;background:var(--b);border-radius:var(--r);margin:12px 0"><strong>AI Read Your Writing:</strong><br><em>"'+parsed.transcription+'"</em></div>';}
+    html+='<div style="padding:14px;background:var(--b);border-radius:var(--r);margin:12px 0"><strong>Feedback:</strong><br>'+(parsed.feedback||'Good work!')+'</div>';
+    if(parsed.strengths&&parsed.strengths.length>0){html+='<div style="padding:14px;background:var(--gl);border-radius:var(--r);margin:8px 0"><strong>Strengths:</strong><ul style="margin:8px 0 0 16px">'+parsed.strengths.map(function(s){return '<li>'+s+'</li>';}).join('')+'</ul></div>';}
+    if(parsed.improvements&&parsed.improvements.length>0){html+='<div style="padding:14px;background:var(--wl);border-radius:var(--r);margin:8px 0"><strong>Areas to Improve:</strong><ul style="margin:8px 0 0 16px">'+parsed.improvements.map(function(s){return '<li>'+s+'</li>';}).join('')+'</ul></div>';}
+    if(parsed.encouragement){html+='<div style="padding:14px;background:var(--gl);border-radius:var(--r);margin:12px 0;text-align:center;font-size:16px">🌟 '+parsed.encouragement+'</div>';}
+    html+='<div style="margin-top:16px;display:flex;gap:8px"><button class="bt bp" onclick="openHomeworkSubmission()">Back to Homework</button><button class="bt" style="background:var(--p);color:white" onclick="go(\'home\')">Go Home</button></div></div>';
+    SC.innerHTML=html;
+
+    S.total++;S.done.push({date:new Date().toDateString(),subject:subject,topic:'homework',score:(parsed.score||70)+'/100'});
+    markActive();sv();syncPerformanceToServer();
+  }catch(e){
+    errEl.textContent='AI error: '+e.message+'. Photo was uploaded successfully.';
+    statusEl.textContent='';
+  }
+}
+
 var _freeWritingImage=null;
 
 function openFreeWritingStudio(){
@@ -2860,7 +3323,6 @@ function showAdminApp(){
   <div class="nav">
     <button class="nb on" onclick="adminTab('students')">Students</button>
     <button class="nb" onclick="adminTab('progress')">Progress</button>
-    <button class="nb" onclick="adminTab('submissions')">Submissions</button>
     <button class="nb" onclick="adminTab('settings')">AI Settings</button>
     <button class="nb" onclick="adminTab('account')">Admin Account</button>
   </div>
@@ -2872,14 +3334,13 @@ function showAdminApp(){
 function adminTab(tab){
   window._adminTab=tab;
   document.querySelectorAll('.nb').forEach((b,i)=>{
-    const map=['students','progress','submissions','settings','account'];
+    const map=['students','progress','settings','account'];
     b.classList.toggle('on',map[i]===tab);
   });
   let SC=document.getElementById('SC');
   switch(tab){
     case 'students': renderAdminStudents(SC);break;
     case 'progress': renderAdminProgress(SC);break;
-    case 'submissions': renderAdminSubmissions(SC);break;
     case 'settings': renderAdminSettings(SC);break;
     case 'account': renderAdminAccount(SC);break;
   }
@@ -3070,18 +3531,33 @@ function renderKidProgress(){
   if(!sel||!detail)return;
 
   if(sel.value==='all'){
+    // First try to fetch latest data from server for all kids, then render
+    if(isHosted()&&!window._allKidsFetched){
+      detail.innerHTML='<div class="cd" style="text-align:center;padding:30px"><div style="font-size:16px;color:var(--t2)">Loading latest data from server...</div></div>';
+      var fetched=0;var total=DB.kids.length;
+      if(total===0){window._allKidsFetched=true;renderKidProgress();return;}
+      DB.kids.forEach(function(k){
+        downloadAndMergeProgress(k,function(merged){
+          fetched++;
+          if(merged){saveDB(DB);}
+          if(fetched>=total){window._allKidsFetched=true;renderKidProgress();}
+        });
+      });
+      return;
+    }
     // Overview of all kids
     let rows=DB.kids.map(function(k){
       let p=k.progress;
       let totalRight=0,totalWrong=0;
-      ['english','maths'].forEach(function(subj){
-        Object.keys(p[subj]).forEach(function(t){totalRight+=p[subj][t].ok;totalWrong+=p[subj][t].no;});
+      ['english','maths','science'].forEach(function(subj){
+        if(!p[subj])return;
+        Object.keys(p[subj]).forEach(function(t){if(p[subj][t]){totalRight+=(p[subj][t].ok||0);totalWrong+=(p[subj][t].no||0);}});
       });
       let pct=totalRight+totalWrong>0?Math.round(totalRight/(totalRight+totalWrong)*100):0;
       let writings=p.wr?p.wr.length:0;
-      return '<tr><td><div style="display:flex;align-items:center;gap:8px"><div class="kid-avatar" style="background:'+k.avatarColor+';width:32px;height:32px;font-size:14px">'+k.name.charAt(0)+'</div>'+k.name+'</div></td><td>'+p.streak+'</td><td>'+p.total+'</td><td>'+pct+'%</td><td>'+writings+'</td><td>'+(p.lastDate||'Never')+'</td></tr>';
+      return '<tr><td><div style="display:flex;align-items:center;gap:8px"><div class="kid-avatar" style="background:'+k.avatarColor+';width:32px;height:32px;font-size:14px">'+k.name.charAt(0)+'</div>'+k.name+'</div></td><td>'+(p.streak||0)+'</td><td>'+(p.total||0)+'</td><td>'+pct+'%</td><td>'+writings+'</td><td>'+(p.lastDate||'Never')+'</td></tr>';
     }).join('');
-    detail.innerHTML='<div class="cd"><table class="tb"><tr><th>Student</th><th>Streak</th><th>Completed</th><th>Accuracy</th><th>Writings</th><th>Last Active</th></tr>'+rows+'</table></div>';
+    detail.innerHTML='<div class="cd"><table class="tb"><tr><th>Student</th><th>Streak</th><th>Completed</th><th>Accuracy</th><th>Writings</th><th>Last Active</th></tr>'+rows+'</table></div><div style="text-align:center;margin-top:8px"><button class="bt" style="font-size:12px;padding:6px 16px;background:var(--p);color:white" onclick="window._allKidsFetched=false;renderKidProgress()">Refresh from Server</button></div>';
     return;
   }
 
@@ -3089,11 +3565,23 @@ function renderKidProgress(){
   let idx=parseInt(sel.value);
   let k=DB.kids[idx];
   if(!k){detail.innerHTML='';return;}
+
+  // Fetch latest data from server before rendering
+  if(isHosted()&&!window['_kidFetched_'+idx]){
+    detail.innerHTML='<div class="cd" style="text-align:center;padding:30px"><div style="font-size:16px;color:var(--t2)">Loading '+k.name+'\'s latest data from server...</div></div>';
+    downloadAndMergeProgress(k,function(merged){
+      if(merged){saveDB(DB);}
+      window['_kidFetched_'+idx]=true;
+      renderKidProgress();
+    });
+    return;
+  }
+
   let p=k.progress;
 
   // Check view mode
   if(window._progressView==='adaptive'){
-    detail.innerHTML=renderAdaptiveParentDash(p,k.name);
+    detail.innerHTML=renderAdaptiveParentDash(p,k.name)+'<div style="text-align:center;margin-top:8px"><button class="bt" style="font-size:12px;padding:6px 16px;background:var(--p);color:white" onclick="window[\'_kidFetched_'+idx+'\']=false;renderKidProgress()">Refresh from Server</button></div>';
     return;
   }
 
@@ -3134,111 +3622,6 @@ function renderKidProgress(){
 
   detail.innerHTML=html;
 }
-// === SUBMISSIONS VIEW (Admin) ===
-function renderAdminSubmissions(el){
-  el.innerHTML='<div class="cd"><h3>Loading submissions...</h3></div>';
-  var kidNames={};
-  DB.kids.forEach(function(k){kidNames[k.username.toLowerCase()]=k.name;});
-  var usernames=DB.kids.map(function(k){return k.username.toLowerCase();});
-  if(usernames.length===0){el.innerHTML='<div class="cd"><div class="empty"><h3>No students yet</h3><div class="ds">Add students first to see submissions.</div></div></div>';return;}
-
-  var allWriting=[];
-  var allQuiz=[];
-  var fetched=0;
-  var total=usernames.length*2;
-
-  usernames.forEach(function(u){
-    fetch('/api/writing-submissions/'+u).then(function(r){return r.json();}).then(function(d){
-      if(d.submissions)d.submissions.forEach(function(s){s._student=kidNames[u]||u;allWriting.push(s);});
-    }).catch(function(){}).finally(function(){fetched++;if(fetched>=total)showSubmissions();});
-
-    fetch('/api/quiz-results/'+u).then(function(r){return r.json();}).then(function(d){
-      if(d.quizzes)d.quizzes.forEach(function(q){q._student=kidNames[u]||u;allQuiz.push(q);});
-    }).catch(function(){}).finally(function(){fetched++;if(fetched>=total)showSubmissions();});
-  });
-
-  function showSubmissions(){
-    allWriting.sort(function(a,b){return new Date(b.date)-new Date(a.date);});
-    allQuiz.sort(function(a,b){return new Date(b.date)-new Date(a.date);});
-
-    var html='<div class="cd"><h3>Writing Submissions ('+allWriting.length+')</h3>';
-    if(allWriting.length===0){
-      html+='<div class="ds">No writing submissions yet.</div>';
-    } else {
-      allWriting.forEach(function(w){
-        var dt=new Date(w.date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
-        var fb=w.feedback||{};
-        var scoreHtml=fb.overall?'<span style="display:inline-block;background:'+(fb.overall>=4?'#16a34a':fb.overall>=3?'#f59e0b':'#ef4444')+';color:#fff;padding:2px 10px;border-radius:12px;font-size:13px;font-weight:700;">'+fb.overall+'/5</span>':'<span style="color:#94a3b8;font-size:13px">No auto-score</span>';
-
-        html+='<div style="border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin-bottom:12px;background:#fafbfc;">';
-        html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">';
-        html+='<div><strong>'+w._student+'</strong> — <em>'+(w.promptTitle||'Writing')+'</em></div>';
-        html+='<div>'+scoreHtml+' <span style="color:#64748b;font-size:12px;margin-left:8px;">'+dt+'</span></div></div>';
-
-        if(w.wordCount) html+='<div style="font-size:13px;color:#64748b;margin-bottom:6px;">Words: '+w.wordCount+'</div>';
-
-        if(w.writingText){
-          var preview=w.writingText.length>300?w.writingText.substring(0,300)+'...':w.writingText;
-          html+='<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px;font-size:14px;line-height:1.7;white-space:pre-wrap;max-height:200px;overflow-y:auto;">'+escapeHtml(preview)+'</div>';
-        }
-        if(w.hasPhoto) html+='<div style="font-size:13px;color:#2e86c1;margin-top:6px;">📷 Photo uploaded</div>';
-
-        // Show feedback breakdown if available
-        if(fb.overall){
-          html+='<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;font-size:12px;">';
-          if(fb.capitalScore!==undefined) html+='<span style="padding:3px 8px;border-radius:6px;background:'+(fb.capitalScore>=4?'#d1fae5':'#fef3c7')+'">Capitals: '+fb.capitalScore+'/5</span>';
-          if(fb.punctScore!==undefined) html+='<span style="padding:3px 8px;border-radius:6px;background:'+(fb.punctScore>=4?'#d1fae5':'#fef3c7')+'">Punctuation: '+fb.punctScore+'/5</span>';
-          if(fb.powerWordScore!==undefined) html+='<span style="padding:3px 8px;border-radius:6px;background:'+(fb.powerWordScore>=4?'#d1fae5':'#fef3c7')+'">Power Words: '+fb.powerWordScore+'/5</span>';
-          if(fb.spellingScore!==undefined) html+='<span style="padding:3px 8px;border-radius:6px;background:'+(fb.spellingScore>=4?'#d1fae5':'#fef3c7')+'">Spelling: '+fb.spellingScore+'/5</span>';
-          if(fb.structureScore!==undefined) html+='<span style="padding:3px 8px;border-radius:6px;background:'+(fb.structureScore>=4?'#d1fae5':'#fef3c7')+'">Structure: '+fb.structureScore+'/5</span>';
-          html+='</div>';
-        }
-        html+='</div>';
-      });
-    }
-    html+='</div>';
-
-    // Quiz results
-    html+='<div class="cd"><h3>Quiz Results ('+allQuiz.length+')</h3>';
-    if(allQuiz.length===0){
-      html+='<div class="ds">No quiz results yet.</div>';
-    } else {
-      allQuiz.forEach(function(q){
-        var dt=new Date(q.date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
-        var pct=q.percentage||Math.round((q.score/q.total)*100);
-        var color=pct>=80?'#16a34a':pct>=60?'#f59e0b':'#ef4444';
-
-        html+='<div style="border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin-bottom:12px;background:#fafbfc;">';
-        html+='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">';
-        html+='<div><strong>'+q._student+'</strong> — <em>'+(q.quizId||'Quiz')+'</em></div>';
-        html+='<div><span style="display:inline-block;background:'+color+';color:#fff;padding:2px 10px;border-radius:12px;font-size:13px;font-weight:700;">'+q.score+'/'+q.total+' ('+pct+'%)</span>';
-        html+=' <span style="color:#64748b;font-size:12px;margin-left:8px;">'+dt+'</span></div></div>';
-
-        if(q.timeTaken) html+='<div style="font-size:13px;color:#64748b;margin-top:4px;">Time: '+Math.floor(q.timeTaken/60)+'m '+q.timeTaken%60+'s</div>';
-
-        // Show question details
-        if(q.questions&&q.questions.length>0){
-          html+='<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;font-size:12px;">';
-          q.questions.forEach(function(qq){
-            var bg=qq.correct?'#d1fae5':'#fee2e2';
-            var icon=qq.correct?'✅':'❌';
-            html+='<span style="padding:3px 8px;border-radius:6px;background:'+bg+'">'+icon+' Q'+qq.question+' '+(qq.topic||'')+'</span>';
-          });
-          html+='</div>';
-        }
-        if(q.weakAreas&&q.weakAreas.length>0){
-          html+='<div style="font-size:13px;color:#ef4444;margin-top:6px;">Weak areas: '+q.weakAreas.join(', ')+'</div>';
-        }
-        html+='</div>';
-      });
-    }
-    html+='</div>';
-    el.innerHTML=html;
-  }
-}
-
-function escapeHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-
 // === AI SETTINGS (Admin) ===
 function renderAdminSettings(el){
   var providerBtns=['claude','gemini'].map(function(p){

@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Riyansh's Maths Challenge Quiz</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 20px;
+  }
+  .container {
+    max-width: 700px;
+    margin: 0 auto;
+  }
+  .header {
+    text-align: center;
+    color: white;
+    margin-bottom: 30px;
+    padding: 20px;
+  }
+  .header h1 {
+    font-size: 2em;
+    margin-bottom: 8px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+  }
+  .header p {
+    font-size: 1.1em;
+    opacity: 0.9;
+  }
+  .progress-bar-container {
+    background: rgba(255,255,255,0.3);
+    border-radius: 20px;
+    height: 12px;
+    margin: 15px 0;
+    overflow: hidden;
+  }
+  .progress-bar {
+    background: #FFD700;
+    height: 100%;
+    border-radius: 20px;
+    transition: width 0.5s ease;
+    width: 0%;
+  }
+  .progress-text {
+    color: white;
+    font-size: 0.9em;
+    text-align: center;
+  }
+
+  /* Question Card */
+  .question-card {
+    background: white;
+    border-radius: 16px;
+    padding: 28px;
+    margin-bottom: 20px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+    transition: transform 0.2s, box-shadow 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .question-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.18);
+  }
+  .question-card.correct {
+    border: 3px solid #27ae60;
+    background: #f0faf4;
+  }
+  .question-card.wrong {
+    border: 3px solid #e74c3c;
+    background: #fdf0ef;
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .topic-badge {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 0.8em;
+    font-weight: 600;
+    color: white;
+  }
+  .topic-logic { background: #e74c3c; }
+  .topic-number { background: #e67e22; }
+  .topic-geometry { background: #2ecc71; }
+  .topic-combinatorics { background: #9b59b6; }
+  .difficulty {
+    font-size: 0.85em;
+    color: #888;
+    font-weight: 600;
+  }
+  .difficulty .star { color: #f1c40f; }
+  .question-title {
+    font-size: 1.25em;
+    font-weight: 700;
+    color: #2c3e50;
+    margin-bottom: 12px;
+  }
+  .question-text {
+    font-size: 1.05em;
+    color: #444;
+    line-height: 1.7;
+    margin-bottom: 8px;
+  }
+  .hint {
+    font-size: 0.88em;
+    color: #888;
+    font-style: italic;
+    margin-bottom: 14px;
+  }
+  .answer-area {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .answer-area label {
+    font-weight: 600;
+    color: #555;
+    font-size: 1em;
+  }
+  .answer-input {
+    border: 2px solid #ddd;
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-size: 1.1em;
+    width: 150px;
+    outline: none;
+    transition: border-color 0.3s;
+    text-align: center;
+  }
+  .answer-input:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+  }
+  .answer-input.correct-input { border-color: #27ae60; background: #eafaf1; }
+  .answer-input.wrong-input { border-color: #e74c3c; background: #fdedec; }
+
+  .result-icon {
+    display: none;
+    font-size: 1.5em;
+  }
+
+  /* Submit Button */
+  .submit-section {
+    text-align: center;
+    margin: 30px 0;
+  }
+  .submit-btn {
+    background: linear-gradient(135deg, #FFD700, #FFA500);
+    color: #333;
+    border: none;
+    padding: 16px 50px;
+    font-size: 1.3em;
+    font-weight: 700;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 4px 15px rgba(255, 165, 0, 0.4);
+  }
+  .submit-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 25px rgba(255, 165, 0, 0.6);
+  }
+  .submit-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  /* Results Section */
+  .results-section {
+    display: none;
+    background: white;
+    border-radius: 16px;
+    padding: 30px;
+    margin-bottom: 20px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+    text-align: center;
+  }
+  .score-display {
+    font-size: 4em;
+    font-weight: 800;
+    margin: 10px 0;
+  }
+  .score-great { color: #27ae60; }
+  .score-ok { color: #f39c12; }
+  .score-needs-work { color: #e74c3c; }
+  .score-label {
+    font-size: 1.2em;
+    color: #666;
+    margin-bottom: 5px;
+  }
+  .score-message {
+    font-size: 1.15em;
+    color: #444;
+    margin: 15px 0 20px;
+    line-height: 1.6;
+  }
+
+  /* Explanation */
+  .explanation {
+    display: none;
+    background: #f8f9ff;
+    border-left: 4px solid #667eea;
+    border-radius: 0 10px 10px 0;
+    padding: 16px 20px;
+    margin-top: 16px;
+    text-align: left;
+  }
+  .explanation h4 {
+    color: #667eea;
+    margin-bottom: 8px;
+    font-size: 1em;
+  }
+  .explanation p {
+    color: #444;
+    line-height: 1.7;
+    font-size: 0.95em;
+  }
+  .explanation .correct-answer {
+    font-weight: 700;
+    color: #27ae60;
+    font-size: 1.05em;
+    margin-top: 8px;
+  }
+
+  /* Email Button */
+  .email-btn {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    padding: 14px 40px;
+    font-size: 1.1em;
+    font-weight: 600;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: transform 0.2s;
+    margin-top: 15px;
+    display: none;
+  }
+  .email-btn:hover { transform: scale(1.05); }
+
+  .retry-btn {
+    background: linear-gradient(135deg, #2ecc71, #27ae60);
+    color: white;
+    border: none;
+    padding: 14px 40px;
+    font-size: 1.1em;
+    font-weight: 600;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: transform 0.2s;
+    margin-top: 10px;
+    margin-left: 10px;
+  }
+  .retry-btn:hover { transform: scale(1.05); }
+
+  /* Timer */
+  .timer {
+    color: white;
+    font-size: 1.3em;
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: 10px;
+  }
+  .timer span {
+    background: rgba(255,255,255,0.2);
+    padding: 6px 16px;
+    border-radius: 20px;
+  }
+
+  /* Confetti canvas */
+  #confetti-canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  .email-sent-msg {
+    display: none;
+    color: #27ae60;
+    font-weight: 600;
+    margin-top: 10px;
+    font-size: 1em;
+  }
+
+  @media (max-width: 600px) {
+    .header h1 { font-size: 1.5em; }
+    .question-card { padding: 20px; }
+    .answer-input { width: 120px; }
+    .submit-btn { padding: 14px 35px; font-size: 1.1em; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="confetti-canvas"></canvas>
+
+<div class="container">
+  <div class="header">
+    <h1>Maths Challenge Quiz</h1>
+    <p>Hey Riyansh! Answer all 5 questions, then hit Submit to see how you did.</p>
+    <div class="timer">Time: <span id="timer">00:00</span></div>
+    <div class="progress-bar-container">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <div class="progress-text" id="progressText">0 of 5 answered</div>
+  </div>
+
+  <!-- Question 1: ORIGINAL - The Number Machine (Logic, Easy) -->
+  <div class="question-card" id="q1-card">
+    <div class="card-header">
+      <span class="topic-badge topic-logic">Logic</span>
+      <span class="difficulty"><span class="star">&#9733;</span> Easy</span>
+    </div>
+    <div class="question-title">Question 1: The Number Machine</div>
+    <p class="question-text">
+      A machine takes a number, <strong>multiplies it by 3</strong>, then <strong>subtracts 5</strong>.
+    </p>
+    <p class="question-text">If the machine outputs <strong>19</strong>, what number was put in?</p>
+    <div class="answer-area">
+      <label>Your answer:</label>
+      <input type="number" class="answer-input" id="q1" placeholder="?" oninput="updateProgress()">
+      <span class="result-icon" id="q1-icon"></span>
+    </div>
+    <div class="explanation" id="q1-explain">
+      <h4>Step-by-step explanation:</h4>
+      <p>
+        The machine does two things: <strong>multiply by 3</strong>, then <strong>subtract 5</strong>.<br><br>
+        To find the input, we work <em>backwards</em>:<br>
+        1. The output is <strong>19</strong><br>
+        2. Undo "subtract 5" by <strong>adding 5</strong>: 19 + 5 = <strong>24</strong><br>
+        3. Undo "multiply by 3" by <strong>dividing by 3</strong>: 24 &divide; 3 = <strong>8</strong><br><br>
+        <strong>Check:</strong> 8 &times; 3 = 24, then 24 &minus; 5 = 19 &#10004;
+      </p>
+      <p class="correct-answer">Correct answer: 8</p>
+    </div>
+  </div>
+
+  <!-- Question 2: NEW - The Coin Jar (Number Theory, Easy) -->
+  <div class="question-card" id="q2-card">
+    <div class="card-header">
+      <span class="topic-badge topic-number">Number Theory</span>
+      <span class="difficulty"><span class="star">&#9733;</span> Easy</span>
+    </div>
+    <div class="question-title">Question 2: The Coin Jar</div>
+    <p class="question-text">
+      Riyansh has a jar with coins. He counts them in groups of <strong>4</strong> and has <strong>3 left over</strong>.
+      He counts them in groups of <strong>5</strong> and has <strong>2 left over</strong>.
+    </p>
+    <p class="question-text">If the jar has <strong>fewer than 30</strong> coins, how many coins are in the jar?</p>
+    <p class="hint">(Hint: Try numbers that leave remainder 3 when divided by 4, and check which also leave remainder 2 when divided by 5.)</p>
+    <div class="answer-area">
+      <label>Your answer:</label>
+      <input type="number" class="answer-input" id="q2" placeholder="?" oninput="updateProgress()">
+      <span class="result-icon" id="q2-icon"></span>
+    </div>
+    <div class="explanation" id="q2-explain">
+      <h4>Step-by-step explanation:</h4>
+      <p>
+        We need a number less than 30 that:<br>
+        &bull; Leaves remainder <strong>3</strong> when divided by 4<br>
+        &bull; Leaves remainder <strong>2</strong> when divided by 5<br><br>
+        Numbers with remainder 3 when &divide; 4: <strong>3, 7, 11, 15, 19, 23, 27</strong><br><br>
+        Now check which of these gives remainder 2 when &divide; 5:<br>
+        &bull; 3 &divide; 5 = 0 remainder <strong>3</strong> &#10008;<br>
+        &bull; 7 &divide; 5 = 1 remainder <strong>2</strong> &#10004; Yes!<br>
+        &bull; 27 &divide; 5 = 5 remainder <strong>2</strong> &#10004; Also works!<br><br>
+        Both 7 and 27 are valid answers!
+      </p>
+      <p class="correct-answer">Correct answers: 7 or 27</p>
+    </div>
+  </div>
+
+  <!-- Question 3: ORIGINAL - The Garden Path (Geometry, Medium) -->
+  <div class="question-card" id="q3-card">
+    <div class="card-header">
+      <span class="topic-badge topic-geometry">Geometry</span>
+      <span class="difficulty"><span class="star">&#9733;</span><span class="star">&#9733;</span> Medium</span>
+    </div>
+    <div class="question-title">Question 3: The Garden Path</div>
+    <p class="question-text">
+      A rectangular garden is <strong>12 m long</strong> and <strong>5 m wide</strong>. A path of width <strong>1 m</strong> runs around the <strong>outside</strong> of the garden.
+    </p>
+    <p class="question-text">What is the area of the path (in m&sup2;)?</p>
+    <p class="hint">(Hint: Think about the bigger rectangle that includes the path.)</p>
+    <div class="answer-area">
+      <label>Your answer:</label>
+      <input type="number" class="answer-input" id="q3" placeholder="?" oninput="updateProgress()">
+      <span class="result-icon" id="q3-icon"></span>
+    </div>
+    <div class="explanation" id="q3-explain">
+      <h4>Step-by-step explanation:</h4>
+      <p>
+        The path is 1 m wide and goes around the <em>outside</em>, so the bigger rectangle is:<br><br>
+        &bull; Length: 12 + 1 + 1 = <strong>14 m</strong> (1 m extra on each side)<br>
+        &bull; Width: 5 + 1 + 1 = <strong>7 m</strong> (1 m extra on each side)<br><br>
+        Area of big rectangle: 14 &times; 7 = <strong>98 m&sup2;</strong><br>
+        Area of garden: 12 &times; 5 = <strong>60 m&sup2;</strong><br><br>
+        Area of path = Big rectangle &minus; Garden<br>
+        = 98 &minus; 60 = <strong>38 m&sup2;</strong>
+      </p>
+      <p class="correct-answer">Correct answer: 38</p>
+    </div>
+  </div>
+
+  <!-- Question 4: ORIGINAL - The Handshake Problem (Combinatorics, Medium) -->
+  <div class="question-card" id="q4-card">
+    <div class="card-header">
+      <span class="topic-badge topic-combinatorics">Combinatorics</span>
+      <span class="difficulty"><span class="star">&#9733;</span><span class="star">&#9733;</span> Medium</span>
+    </div>
+    <div class="question-title">Question 4: The Handshake Problem</div>
+    <p class="question-text">
+      There are <strong>6 people</strong> at a party. If every person shakes hands with every other person exactly once, how many handshakes happen in total?
+    </p>
+    <div class="answer-area">
+      <label>Your answer:</label>
+      <input type="number" class="answer-input" id="q4" placeholder="?" oninput="updateProgress()">
+      <span class="result-icon" id="q4-icon"></span>
+    </div>
+    <div class="explanation" id="q4-explain">
+      <h4>Step-by-step explanation:</h4>
+      <p>
+        Let's think about it person by person:<br><br>
+        &bull; Person 1 shakes hands with 5 others<br>
+        &bull; Person 2 shakes hands with 4 <em>new</em> people (already shook with Person 1)<br>
+        &bull; Person 3 shakes hands with 3 new people<br>
+        &bull; Person 4 shakes hands with 2 new people<br>
+        &bull; Person 5 shakes hands with 1 new person<br>
+        &bull; Person 6 has already shaken everyone's hand!<br><br>
+        Total = 5 + 4 + 3 + 2 + 1 = <strong>15 handshakes</strong><br><br>
+        <em>Formula: n(n&minus;1) &divide; 2 = 6 &times; 5 &divide; 2 = 15</em>
+      </p>
+      <p class="correct-answer">Correct answer: 15</p>
+    </div>
+  </div>
+
+  <!-- Question 5: NEW - The Treasure Chest Code (Logic, Hard) -->
+  <div class="question-card" id="q5-card">
+    <div class="card-header">
+      <span class="topic-badge topic-logic">Logic</span>
+      <span class="difficulty"><span class="star">&#9733;</span><span class="star">&#9733;</span><span class="star">&#9733;</span> Hard</span>
+    </div>
+    <div class="question-title">Question 5: The Treasure Chest Code</div>
+    <p class="question-text">
+      A treasure chest has a 3-digit code lock. You know these clues:
+    </p>
+    <p class="question-text">
+      &bull; All three digits add up to <strong>12</strong><br>
+      &bull; The hundreds digit is <strong>double</strong> the ones digit<br>
+      &bull; The tens digit is <strong>4 more</strong> than the ones digit
+    </p>
+    <p class="question-text">What is the 3-digit code?</p>
+    <p class="hint">(Hint: Let the ones digit = some number, then figure out the other two digits using the clues.)</p>
+    <div class="answer-area">
+      <label>Your answer:</label>
+      <input type="number" class="answer-input" id="q5" placeholder="?" oninput="updateProgress()">
+      <span class="result-icon" id="q5-icon"></span>
+    </div>
+    <div class="explanation" id="q5-explain">
+      <h4>Step-by-step explanation:</h4>
+      <p>
+        Let's call the ones digit <strong>x</strong>.<br><br>
+        From the clues:<br>
+        &bull; Hundreds digit = <strong>2x</strong> (double the ones digit)<br>
+        &bull; Tens digit = <strong>x + 4</strong> (4 more than the ones digit)<br><br>
+        All three add up to 12:<br>
+        2x + (x + 4) + x = 12<br>
+        4x + 4 = 12<br>
+        4x = 8<br>
+        x = <strong>2</strong><br><br>
+        So the digits are:<br>
+        &bull; Ones digit = <strong>2</strong><br>
+        &bull; Hundreds digit = 2 &times; 2 = <strong>4</strong><br>
+        &bull; Tens digit = 2 + 4 = <strong>6</strong><br><br>
+        The code is: <strong>462</strong><br><br>
+        <strong>Check:</strong> 4 + 6 + 2 = 12 &#10004; | Hundreds (4) = double ones (2) &#10004; | Tens (6) = ones (2) + 4 &#10004;
+      </p>
+      <p class="correct-answer">Correct answer: 462</p>
+    </div>
+  </div>
+
+  <!-- Submit -->
+  <div class="submit-section">
+    <button class="submit-btn" id="submitBtn" onclick="submitQuiz()">Submit Answers</button>
+  </div>
+
+  <!-- Results -->
+  <div class="results-section" id="resultsSection">
+    <p class="score-label">Your Score</p>
+    <div class="score-display" id="scoreDisplay"></div>
+    <p class="score-message" id="scoreMessage"></p>
+    <button class="email-btn" id="emailBtn" onclick="emailResults()">Email Results to Dad</button>
+    <button class="retry-btn" onclick="retryQuiz()">Try Again</button>
+    <p class="email-sent-msg" id="emailSentMsg">Email is ready to send! Check the new tab that opened.</p>
+  </div>
+</div>
+
+<script>
+  // Timer
+  let seconds = 0;
+  let timerInterval;
+  let quizSubmitted = false;
+
+  function startTimer() {
+    timerInterval = setInterval(function() {
+      seconds++;
+      let m = Math.floor(seconds / 60);
+      let s = seconds % 60;
+      document.getElementById('timer').textContent =
+        (m < 10 ? '0' + m : m) + ':' + (s < 10 ? '0' + s : s);
+    }, 1000);
+  }
+  startTimer();
+
+  // Progress tracking
+  function updateProgress() {
+    if (quizSubmitted) return;
+    let answered = 0;
+    for (let i = 1; i <= 5; i++) {
+      if (document.getElementById('q' + i).value.trim() !== '') answered++;
+    }
+    document.getElementById('progressBar').style.width = (answered / 5 * 100) + '%';
+    document.getElementById('progressText').textContent = answered + ' of 5 answered';
+  }
+
+  // Correct answers
+  const answers = {
+    q1: [8],
+    q2: [7, 27],
+    q3: [38],
+    q4: [15],
+    q5: [462]
+  };
+
+  function checkAnswer(qId, userAnswer) {
+    let correctList = answers[qId];
+    let parsed = parseFloat(userAnswer);
+    if (isNaN(parsed)) return false;
+    return correctList.includes(parsed);
+  }
+
+  function submitQuiz() {
+    quizSubmitted = true;
+    clearInterval(timerInterval);
+
+    let score = 0;
+    let results = [];
+
+    for (let i = 1; i <= 5; i++) {
+      let qId = 'q' + i;
+      let input = document.getElementById(qId);
+      let card = document.getElementById(qId + '-card');
+      let icon = document.getElementById(qId + '-icon');
+      let explain = document.getElementById(qId + '-explain');
+      let userVal = input.value.trim();
+      let isCorrect = checkAnswer(qId, userVal);
+
+      if (isCorrect) {
+        score++;
+        card.classList.add('correct');
+        input.classList.add('correct-input');
+        icon.textContent = '✅';
+        icon.style.display = 'inline';
+      } else {
+        card.classList.add('wrong');
+        input.classList.add('wrong-input');
+        icon.textContent = '❌';
+        icon.style.display = 'inline';
+      }
+
+      explain.style.display = 'block';
+      input.disabled = true;
+
+      results.push({
+        question: i,
+        userAnswer: userVal || '(blank)',
+        correct: isCorrect,
+        correctAnswer: answers[qId].join(' or ')
+      });
+    }
+
+    // Show results
+    let resultsSection = document.getElementById('resultsSection');
+    let scoreDisplay = document.getElementById('scoreDisplay');
+    let scoreMessage = document.getElementById('scoreMessage');
+    let emailBtn = document.getElementById('emailBtn');
+
+    scoreDisplay.textContent = score + ' / 5';
+
+    if (score === 5) {
+      scoreDisplay.className = 'score-display score-great';
+      scoreMessage.textContent = 'PERFECT SCORE! Amazing work, Riyansh! You are a maths superstar! 🌟';
+      launchConfetti();
+    } else if (score >= 3) {
+      scoreDisplay.className = 'score-display score-ok';
+      scoreMessage.textContent = 'Good job, Riyansh! You got most of them right. Read the explanations below to learn from the ones you missed! 💪';
+      if (score >= 4) launchConfetti();
+    } else {
+      scoreDisplay.className = 'score-display score-needs-work';
+      scoreMessage.textContent = 'Keep going, Riyansh! Maths takes practice. Read the explanations carefully — you will get better each time! 📚';
+    }
+
+    resultsSection.style.display = 'block';
+    emailBtn.style.display = 'inline-block';
+    document.getElementById('submitBtn').disabled = true;
+    document.getElementById('submitBtn').textContent = 'Submitted ✓';
+
+    // Update progress
+    document.getElementById('progressBar').style.width = '100%';
+    document.getElementById('progressText').textContent = 'Quiz complete! Score: ' + score + '/5';
+
+    // Save results for email
+    window.quizResults = { score, results, time: document.getElementById('timer').textContent };
+
+    // Scroll to results
+    resultsSection.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function emailResults() {
+    let r = window.quizResults;
+    let timeStr = r.time;
+    let date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    let body = 'RIYANSH MATHS QUIZ RESULTS - ' + date + '%0D%0A';
+    body += '=================================%0D%0A%0D%0A';
+    body += 'Score: ' + r.score + ' out of 5 (' + (r.score * 20) + '%)%0D%0A';
+    body += 'Time taken: ' + timeStr + '%0D%0A%0D%0A';
+    body += 'QUESTION BREAKDOWN:%0D%0A';
+    body += '---------------------------------%0D%0A';
+
+    let qNames = [
+      'Q1: The Number Machine (Logic, Easy)',
+      'Q2: The Coin Jar (Number Theory, Easy)',
+      'Q3: The Garden Path (Geometry, Medium)',
+      'Q4: The Handshake Problem (Combinatorics, Medium)',
+      'Q5: The Treasure Chest Code (Logic, Hard)'
+    ];
+
+    for (let i = 0; i < r.results.length; i++) {
+      let res = r.results[i];
+      let status = res.correct ? 'CORRECT' : 'WRONG';
+      body += qNames[i] + '%0D%0A';
+      body += '  His answer: ' + res.userAnswer + ' | ' + status;
+      if (!res.correct) body += ' (Correct: ' + res.correctAnswer + ')';
+      body += '%0D%0A%0D%0A';
+    }
+
+    body += '=================================%0D%0A';
+    if (r.score >= 4) body += 'Excellent performance! Keep it up!';
+    else if (r.score >= 3) body += 'Good effort! Review the missed questions for improvement.';
+    else body += 'Needs more practice. Focus on the explanations provided.';
+
+    let mailto = 'mailto:vivekkohli81@gmail.com';
+    mailto += '?subject=Riyansh Quiz Results - ' + date + ' - Score ' + r.score + '/5';
+    mailto += '&body=' + body;
+
+    window.open(mailto, '_blank');
+    document.getElementById('emailSentMsg').style.display = 'block';
+  }
+
+  function retryQuiz() {
+    quizSubmitted = false;
+    seconds = 0;
+    startTimer();
+
+    for (let i = 1; i <= 5; i++) {
+      let qId = 'q' + i;
+      let input = document.getElementById(qId);
+      let card = document.getElementById(qId + '-card');
+      let icon = document.getElementById(qId + '-icon');
+      let explain = document.getElementById(qId + '-explain');
+
+      input.value = '';
+      input.disabled = false;
+      input.classList.remove('correct-input', 'wrong-input');
+      card.classList.remove('correct', 'wrong');
+      icon.style.display = 'none';
+      explain.style.display = 'none';
+    }
+
+    document.getElementById('resultsSection').style.display = 'none';
+    document.getElementById('submitBtn').disabled = false;
+    document.getElementById('submitBtn').textContent = 'Submit Answers';
+    document.getElementById('emailBtn').style.display = 'none';
+    document.getElementById('emailSentMsg').style.display = 'none';
+    updateProgress();
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // Simple confetti
+  function launchConfetti() {
+    let canvas = document.getElementById('confetti-canvas');
+    let ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    let pieces = [];
+    let colors = ['#FFD700', '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#FF9FF3'];
+
+    for (let i = 0; i < 150; i++) {
+      pieces.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height - canvas.height,
+        w: Math.random() * 10 + 5,
+        h: Math.random() * 6 + 3,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        vy: Math.random() * 3 + 2,
+        vx: Math.random() * 2 - 1,
+        rotation: Math.random() * 360,
+        rotSpeed: Math.random() * 6 - 3
+      });
+    }
+
+    let frames = 0;
+    function animate() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      pieces.forEach(p => {
+        p.y += p.vy;
+        p.x += p.vx;
+        p.rotation += p.rotSpeed;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation * Math.PI / 180);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      });
+      frames++;
+      if (frames < 200) requestAnimationFrame(animate);
+      else ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    animate();
+  }
+</script>
+</body>
+</html>

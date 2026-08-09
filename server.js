@@ -37,6 +37,77 @@ if (!fs.existsSync(QUIZ_DIR)) fs.mkdirSync(QUIZ_DIR, { recursive: true });
 const WRITING_DIR = path.join(DATA_ROOT, 'writing-submissions');
 if (!fs.existsSync(WRITING_DIR)) fs.mkdirSync(WRITING_DIR, { recursive: true });
 
+// === HOMEWORK SUBMISSIONS DATABASE ===
+const HOMEWORK_DIR = path.join(DATA_ROOT, 'homework');
+if (!fs.existsSync(HOMEWORK_DIR)) fs.mkdirSync(HOMEWORK_DIR, { recursive: true });
+const HOMEWORK_FILES_DIR = path.join(HOMEWORK_DIR, 'files');
+if (!fs.existsSync(HOMEWORK_FILES_DIR)) fs.mkdirSync(HOMEWORK_FILES_DIR, { recursive: true });
+
+function getHomeworkPath(username) {
+  const safe = username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
+  return path.join(HOMEWORK_DIR, safe + '.json');
+}
+
+function readHomework(username) {
+  const fp = getHomeworkPath(username);
+  try {
+    if (fs.existsSync(fp)) return JSON.parse(fs.readFileSync(fp, 'utf8'));
+  } catch (e) {}
+  return { username, submissions: [] };
+}
+
+function saveHomework(username, data) {
+  const fp = getHomeworkPath(username);
+  data.lastUpdated = new Date().toISOString();
+  fs.writeFileSync(fp, JSON.stringify(data, null, 2), 'utf8');
+}
+
+// Parse multipart form data (for file uploads)
+function parseMultipart(buffer, boundary) {
+  const parts = [];
+  const boundaryBuf = Buffer.from('--' + boundary);
+  let pos = 0;
+
+  while (pos < buffer.length) {
+    const boundaryStart = buffer.indexOf(boundaryBuf, pos);
+    if (boundaryStart === -1) break;
+
+    const nextBoundary = buffer.indexOf(boundaryBuf, boundaryStart + boundaryBuf.length + 2);
+    if (nextBoundary === -1) break;
+
+    const partData = buffer.slice(boundaryStart + boundaryBuf.length + 2, nextBoundary - 2);
+    const headerEnd = partData.indexOf('\r\n\r\n');
+    if (headerEnd === -1) { pos = nextBoundary; continue; }
+
+    const headers = partData.slice(0, headerEnd).toString('utf8');
+    const body = partData.slice(headerEnd + 4);
+
+    const nameMatch = headers.match(/name="([^"]+)"/);
+    const filenameMatch = headers.match(/filename="([^"]+)"/);
+    const contentTypeMatch = headers.match(/Content-Type:\s*(.+)/i);
+
+    parts.push({
+      name: nameMatch ? nameMatch[1] : '',
+      filename: filenameMatch ? filenameMatch[1] : null,
+      contentType: contentTypeMatch ? contentTypeMatch[1].trim() : null,
+      data: body
+    });
+
+    pos = nextBoundary;
+  }
+  return parts;
+}
+
+// Read raw body as Buffer (for multipart)
+function readBodyRaw(req) {
+  return new Promise((resolve, reject) => {
+    let chunks = [];
+    req.on('data', c => chunks.push(c));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
 function getQuizResultsPath(username) {
   const safe = username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
   return path.join(QUIZ_DIR, safe + '.json');
@@ -359,6 +430,157 @@ const server = http.createServer(async (req, res) => {
       writePerf(body.username, body);
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ success: true, username: body.username }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // === HOMEWORK SUBMISSION API ===
+
+  // POST /api/homework - submit homework with file upload (multipart/form-data)
+  if (req.url === '/api/homework' && req.method === 'POST') {
+    try {
+      const contentType = req.headers['content-type'] || '';
+
+      if (contentType.includes('multipart/form-data')) {
+        const boundary = contentType.split('boundary=')[1];
+        if (!boundary) {
+          res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'Missing boundary in multipart' }));
+          return;
+        }
+        const rawBody = await readBodyRaw(req);
+        const parts = parseMultipart(rawBody, boundary);
+
+        let username = '', subject = '', topic = '', title = '', notes = '', fileData = null, fileName = '', fileType = '';
+
+        parts.forEach(p => {
+          if (p.name === 'username') username = p.data.toString('utf8').trim();
+          else if (p.name === 'subject') subject = p.data.toString('utf8').trim();
+          else if (p.name === 'topic') topic = p.data.toString('utf8').trim();
+          else if (p.name === 'title') title = p.data.toString('utf8').trim();
+          else if (p.name === 'notes') notes = p.data.toString('utf8').trim();
+          else if (p.name === 'file' && p.filename) {
+            fileData = p.data;
+            fileName = p.filename;
+            fileType = p.contentType || 'application/octet-stream';
+          }
+        });
+
+        if (!username) {
+          res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'username is required' }));
+          return;
+        }
+
+        // Save file if present
+        let savedFileName = null;
+        if (fileData && fileName) {
+          const safe = username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
+          const ext = path.extname(fileName) || '.bin';
+          savedFileName = safe + '_' + Date.now() + ext;
+          fs.writeFileSync(path.join(HOMEWORK_FILES_DIR, savedFileName), fileData);
+        }
+
+        const submission = {
+          id: 'hw_' + Date.now(),
+          date: new Date().toISOString(),
+          subject: subject || 'general',
+          topic: topic || '',
+          title: title || fileName || 'Untitled',
+          notes: notes || '',
+          fileName: fileName || null,
+          savedFileName: savedFileName,
+          fileType: fileType || null,
+          fileSize: fileData ? fileData.length : 0,
+          status: 'submitted',
+          feedback: null
+        };
+
+        const data = readHomework(username);
+        data.submissions.push(submission);
+        saveHomework(username, data);
+
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: true, submissionId: submission.id, fileName: savedFileName }));
+      } else {
+        // JSON body (for submissions without file, e.g. text-only or base64)
+        const body = JSON.parse(await readBody(req));
+        if (!body.username) {
+          res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'username is required' }));
+          return;
+        }
+
+        let savedFileName = null;
+        if (body.fileData && body.fileName) {
+          const safe = body.username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
+          const ext = path.extname(body.fileName) || '.bin';
+          savedFileName = safe + '_' + Date.now() + ext;
+          const base64Data = body.fileData.replace(/^data:[^;]+;base64,/, '');
+          fs.writeFileSync(path.join(HOMEWORK_FILES_DIR, savedFileName), Buffer.from(base64Data, 'base64'));
+        }
+
+        const submission = {
+          id: 'hw_' + Date.now(),
+          date: new Date().toISOString(),
+          subject: body.subject || 'general',
+          topic: body.topic || '',
+          title: body.title || body.fileName || 'Untitled',
+          notes: body.notes || '',
+          fileName: body.fileName || null,
+          savedFileName: savedFileName,
+          fileType: body.fileType || null,
+          fileSize: body.fileSize || 0,
+          status: 'submitted',
+          feedback: body.feedback || null
+        };
+
+        const data = readHomework(body.username);
+        data.submissions.push(submission);
+        saveHomework(body.username, data);
+
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: true, submissionId: submission.id }));
+      }
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // GET /api/homework/:username - get all homework submissions
+  if (req.url.startsWith('/api/homework/') && req.method === 'GET') {
+    const username = decodeURIComponent(req.url.split('/api/homework/')[1]).split('?')[0];
+    const data = readHomework(username);
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(data));
+    return;
+  }
+
+  // Serve uploaded homework files
+  if (req.url.startsWith('/api/homework-file/') && req.method === 'GET') {
+    const fileName = decodeURIComponent(req.url.split('/api/homework-file/')[1]).split('?')[0];
+    const safeName = fileName.replace(/[^a-zA-Z0-9_.-]/g, '');
+    const filePath = path.join(HOMEWORK_FILES_DIR, safeName);
+    try {
+      if (fs.existsSync(filePath)) {
+        const data = fs.readFileSync(filePath);
+        const ext = path.extname(safeName).toLowerCase();
+        const mimeTypes = {'.pdf':'application/pdf','.doc':'application/msword','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.gif':'image/gif','.txt':'text/plain','.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'};
+        res.writeHead(200, {
+          'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+          'Content-Disposition': 'inline; filename="' + safeName + '"',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(data);
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'File not found' }));
+      }
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ error: e.message }));
