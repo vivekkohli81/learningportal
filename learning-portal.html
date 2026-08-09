@@ -101,10 +101,33 @@ select.api{appearance:auto;background:var(--c);cursor:pointer}
 .logout-btn{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);color:#fff;padding:4px 12px;border-radius:16px;font-size:12px;cursor:pointer;font-family:inherit}
 .logout-btn:hover{background:rgba(255,255,255,.35)}
 
+/* === ASSIGNMENT PAPER === */
+#printArea{display:none}
+.asg-timer{position:sticky;top:0;z-index:50;background:var(--c);border:2px solid var(--p);border-radius:var(--r);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.asg-timer .t{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.asg-q{border:1px solid var(--b);border-radius:var(--r);padding:14px;margin-bottom:12px;background:var(--c)}
+.asg-q .qn{font-weight:700;color:var(--p);margin-bottom:6px;font-size:13px}
+.asg-q textarea{width:100%;min-height:80px;padding:10px;border:1px solid var(--b);border-radius:8px;font-family:inherit;font-size:15px;resize:vertical;box-sizing:border-box}
+.asg-opt{display:block;padding:9px 12px;border:2px solid var(--b);border-radius:8px;margin-bottom:6px;cursor:pointer;font-size:15px}
+.asg-opt:hover{border-color:var(--p)}
+.asg-opt.sel{border-color:var(--p);background:var(--pl)}
+
+/* === PRINTING: hide the app, show only the question paper === */
+@media print{
+  @page{size:A4;margin:15mm}
+  body{background:#fff !important}
+  #APP{display:none !important}
+  #printArea{display:block !important}
+  .pq{page-break-inside:avoid;margin-bottom:16px}
+  .pq-lines{border-bottom:1px solid #999;height:22px;margin-top:7px}
+  .no-print{display:none !important}
+  h1,h2,h3{color:#000 !important}
+}
 </style>
 </head>
 <body>
 <div class="app" id="APP"></div>
+<div id="printArea"></div>
 <script>
 
 // =============================================
@@ -606,6 +629,86 @@ async function callGemini(prompt,maxTokens){
   throw new Error('All Gemini models are currently over their free quota. This usually resets within a few minutes. Please wait a bit and try again, or switch to Claude in AI Settings. Last error: '+lastErr);
 }
 
+// === VISION: send an actual image or PDF to the AI ===
+// dataUrl is what FileReader.readAsDataURL produces:
+//   "data:image/jpeg;base64,/9j/4AAQ..."
+// We split off the prefix because both APIs want raw base64.
+function splitDataUrl(dataUrl){
+  var m=/^data:([^;]+);base64,(.*)$/.exec(dataUrl||'');
+  if(!m) return null;
+  return {mime:m[1],data:m[2]};
+}
+
+async function callAIWithFile(prompt,dataUrl,maxTokens){
+  if(!hasAIKey()) throw new Error('No API key set. Ask your parent/teacher to add an API key in Admin Dashboard > AI Settings.');
+  var parts=splitDataUrl(dataUrl);
+  if(!parts) throw new Error('Could not read the uploaded file.');
+
+  var isImage=parts.mime.indexOf('image/')===0;
+  var isPdf=parts.mime==='application/pdf';
+  if(!isImage&&!isPdf){
+    // Anything else (Word, Excel...) can't be read visually — fall back to text
+    throw new Error('UNSUPPORTED_FILE');
+  }
+
+  if(DB.settings.provider==='gemini'){
+    var directUrl='https://generativelanguage.googleapis.com/v1beta/models/'+(DB.settings.model||'gemini-3.6-flash')+':generateContent?key='+DB.settings.geminiKey;
+    var gUrl=isHosted()?'/api/gemini?url='+encodeURIComponent(directUrl):directUrl;
+    var gRes=await fetch(gUrl,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        contents:[{parts:[
+          {inline_data:{mime_type:parts.mime,data:parts.data}},
+          {text:prompt}
+        ]}],
+        generationConfig:{maxOutputTokens:maxTokens||2000}
+      })
+    });
+    var gData=await gRes.json();
+    if(gData.error) throw new Error('Gemini error: '+(gData.error.message||'unknown'));
+    if(!gData.candidates||!gData.candidates[0]) throw new Error('Gemini returned no response.');
+    return gData.candidates[0].content.parts[0].text;
+  }
+
+  // Claude
+  var block=isPdf
+    ? {type:'document',source:{type:'base64',media_type:'application/pdf',data:parts.data}}
+    : {type:'image',source:{type:'base64',media_type:parts.mime,data:parts.data}};
+
+  var url=isHosted()?'/api/claude':'https://api.anthropic.com/v1/messages';
+  var headers={'Content-Type':'application/json','x-api-key':DB.settings.key,'anthropic-version':'2023-06-01'};
+  if(!isHosted())headers['anthropic-dangerous-direct-browser-access']='true';
+
+  var res=await fetch(url,{
+    method:'POST',
+    headers:headers,
+    body:JSON.stringify({
+      model:DB.settings.model,
+      max_tokens:maxTokens||2000,
+      messages:[{role:'user',content:[block,{type:'text',text:prompt}]}]
+    })
+  });
+  var data=await res.json();
+  if(data.error) throw new Error('Claude error: '+data.error.message);
+  if(!data.content||!data.content[0]) throw new Error('No response from Claude.');
+  return data.content[0].text;
+}
+
+// Pulls the first JSON object/array out of an AI reply, tolerating
+// markdown code fences and stray commentary around it.
+function parseAIJSON(text){
+  if(!text) throw new Error('Empty AI response');
+  var t=String(text).trim();
+  t=t.replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'');
+  try{ return JSON.parse(t); }catch(e){}
+  var arr=t.match(/\[[\s\S]*\]/);
+  if(arr){ try{ return JSON.parse(arr[0]); }catch(e){} }
+  var obj=t.match(/\{[\s\S]*\}/);
+  if(obj){ try{ return JSON.parse(obj[0]); }catch(e){} }
+  throw new Error('Could not read the AI response as JSON');
+}
+
 // =============================================
 // === KID APP (the learning portal) ===========
 // =============================================
@@ -1013,6 +1116,7 @@ function go(screen){
     case 'resources': renderResources(SC); break;
     case 'writing': openWritingCentre(); break;
     case 'homework': openHomeworkSubmission(); break;
+    case 'assignments': openAssignments(); break;
     case 'settings': renderStudentSettings(SC); break;
     default: renderHome(SC);
   }
@@ -1077,6 +1181,7 @@ function renderHome(el){
       '</table>'}
   </div>`;
   // Add homework submission card
+  el.innerHTML+='<div class="cd" onclick="go(\'assignments\')" style="cursor:pointer;border-left:4px solid var(--p)"><h3>📝 Timed Assignment</h3><div class="ds">A one hour paper built for your level, focused on what you find tricky. Answer on screen or print it out.</div><div style="margin-top:8px;font-size:13px;color:var(--t2)">15 questions &middot; marked automatically with feedback</div></div>';
   el.innerHTML+='<div class="cd" onclick="go(\'homework\')" style="cursor:pointer;border-left:4px solid #8b5cf6"><h3>📤 Homework Submission</h3><div class="ds">Upload your homework — PDFs, photos, Word docs, or any file. Get AI feedback on your work.</div><div style="margin-top:8px;font-size:13px;color:var(--t2)">Supports: PDF, Word, Images, Text files, and more</div></div>';
 
   // Add adaptive recommendations section
@@ -2426,6 +2531,534 @@ async function generateAIWritingPrompt(typeKey){
   let recentAI=S.wr.filter(function(w){return w.mode==='ai'&&w.aiFeedback;});
   let focusArea=recentAI.length>0?(recentAI[recentAI.length-1].aiFeedback.next_focus||'general writing skills'):'general writing skills';
   await generateAdaptivePrompt(typeKey,focusArea);
+}
+
+// =====================================================
+// === TIMED ASSIGNMENTS ===============================
+// AI builds a ~1 hour paper for a topic at the student's
+// current level, targeting the mistakes he has made.
+// =====================================================
+
+var ASG=null;          // the assignment currently open
+var ASG_TIMER=null;    // interval handle for the countdown
+
+// Every topic the portal teaches, grouped for the picker
+var ASG_TOPICS={
+  english:{label:'English',topics:{punctuation:'Punctuation',reading:'Reading Comprehension',writing:'Creative Writing'}},
+  maths:{label:'Maths',topics:{geometry:'Geometry',problemSolving:'Problem Solving',number:'Number Skills'}},
+  science:{label:'Science',topics:{biology:'Biology',chemistry:'Chemistry',physics:'Physics',earthSpace:'Earth & Space'}},
+  ib7:{label:'Year 7 MYP',topics:{wholeNumbers:'Whole Numbers',numberProperties:'Number Properties',linesAngles:'Lines & Angles',numberStrategies:'Number Strategies',posNegNumbers:'Positive & Negative Numbers',fractions:'Fractions',decimals:'Decimals',algebra:'Algebra',percentage:'Percentages',equations:'Equations',polygons:'Polygons',measurementArea:'Measurement & Area',solids:'Solids',volumeMass:'Volume & Mass',coordGeometry:'Coordinate Geometry',ratioRates:'Ratio & Rates',probability:'Probability',statistics:'Statistics',transformations:'Transformations'}}
+};
+
+function asgTopicLabel(subj,topic){
+  var g=ASG_TOPICS[subj];
+  return (g&&g.topics[topic])||topic;
+}
+
+function ensureAssignments(){
+  if(!S.assignments)S.assignments=[];
+  return S.assignments;
+}
+
+// --- Main screen: choose a topic, or resume/review past papers ---
+function openAssignments(){
+  var SC=document.getElementById('SC');
+  var list=ensureAssignments();
+
+  var html='<div class="cd"><h2>Timed Assignments</h2>';
+  html+='<div class="ds">A one hour paper built for you. The questions are chosen from your current level and the things you have found tricky before.</div></div>';
+
+  if(!hasAIKey()){
+    html+='<div class="cd"><div style="padding:12px;background:var(--wl);border-radius:var(--r)">An AI key is needed to create assignments. Ask your parent to add one in AI Settings.</div></div>';
+    SC.innerHTML=html;
+    return;
+  }
+
+  // Anything unfinished comes first
+  var open=list.filter(function(a){return a.status==='in_progress';});
+  if(open.length>0){
+    html+='<div class="cd"><h3>Continue where you left off</h3>';
+    open.slice().reverse().forEach(function(a){
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--b);flex-wrap:wrap">';
+      html+='<div><strong>'+asgTopicLabel(a.subject,a.topic)+'</strong><div style="font-size:12px;color:var(--t2)">Level '+a.level+' &middot; '+a.questions.length+' questions &middot; started '+a.createdAt+'</div></div>';
+      html+='<button class="bt bp" onclick="resumeAssignment(\''+a.id+'\')">Continue</button></div>';
+    });
+    html+='</div>';
+  }
+
+  // Topic picker
+  html+='<div class="cd"><h3>Start a new assignment</h3>';
+  Object.keys(ASG_TOPICS).forEach(function(subj){
+    if(!S[subj])return;
+    var g=ASG_TOPICS[subj];
+    html+='<div style="margin-top:12px"><div style="font-weight:600;margin-bottom:6px">'+g.label+'</div>';
+    html+='<div style="display:flex;flex-wrap:wrap;gap:6px">';
+    Object.keys(g.topics).forEach(function(t){
+      if(!S[subj][t])return;
+      var lv=S[subj][t].lv||1;
+      html+='<button class="bt" style="font-size:13px;padding:7px 12px;background:var(--b)" onclick="startAssignment(\''+subj+'\',\''+t+'\')">'+g.topics[t]+' <span style="opacity:.65">L'+lv+'</span></button>';
+    });
+    html+='</div></div>';
+  });
+  html+='</div>';
+
+  // Completed papers
+  var done=list.filter(function(a){return a.status==='marked';});
+  if(done.length>0){
+    html+='<div class="cd"><h3>Marked papers</h3>';
+    done.slice(-10).reverse().forEach(function(a){
+      var pct=a.result?a.result.pct:0;
+      var col=pct>=80?'var(--g)':pct>=50?'var(--w)':'var(--e)';
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--b);flex-wrap:wrap">';
+      html+='<div><strong>'+asgTopicLabel(a.subject,a.topic)+'</strong><div style="font-size:12px;color:var(--t2)">'+a.createdAt+' &middot; Level '+a.level+'</div></div>';
+      html+='<div style="display:flex;align-items:center;gap:8px"><span style="font-weight:700;color:'+col+'">'+pct+'%</span>';
+      html+='<button class="bt" style="font-size:12px;padding:5px 10px" onclick="viewAssignmentResult(\''+a.id+'\')">View</button></div></div>';
+    });
+    html+='</div>';
+  }
+
+  SC.innerHTML=html;
+}
+
+// --- Generate the paper ---
+async function startAssignment(subj,topic){
+  var SC=document.getElementById('SC');
+  var s=S[subj][topic];
+  var lvNames={1:'beginner (Year 5-6)',2:'intermediate (Year 7-8)',3:'advanced (Year 8-9)',4:'expert (Year 9-10)',5:'master (Year 10-11)'};
+  var label=asgTopicLabel(subj,topic);
+
+  SC.innerHTML='<div class="cd" style="text-align:center"><h2>Building your assignment...</h2><div class="ds">'+label+' &middot; Level '+s.lv+'</div><div class="pb"><div class="pf" style="width:45%"></div></div><div style="margin-top:14px;color:var(--t2);font-size:13px">Choosing questions based on your past work. This takes 20-40 seconds.</div></div>';
+
+  var learnerCtx=(typeof buildLearnerContext==='function')?buildLearnerContext(subj,topic):'';
+
+  var prompt='You are setting a one hour written assignment for a student working at '+lvNames[s.lv]+' level on the topic: '+label+'.\n\n'
+    +'STUDENT NEEDS: Use clear, literal language. No idioms, no figurative phrasing, no ambiguous wording. One task per question. Keep instructions explicit.'
+    +learnerCtx+'\n\n'
+    +'PAPER STRUCTURE - exactly 15 questions totalling about 60 minutes:\n'
+    +'- Questions 1-8: multiple choice, 1 mark each, roughly 1-2 minutes each.\n'
+    +'- Questions 9-12: short written answers requiring working or a sentence, 2 marks each, roughly 4 minutes each.\n'
+    +'- Questions 13-15: longer problems requiring several steps or a paragraph, 4 marks each, roughly 8 minutes each.\n\n'
+    +'RULES:\n'
+    +'1. Where the profile above lists past mistakes, make several questions practise those same underlying skills using different numbers and wording. Do not copy the old questions.\n'
+    +'2. Multiple choice distractors must be believable errors a student would really make.\n'
+    +'3. Every question needs a worked explanation that teaches the method.\n'
+    +'4. Order the paper so it gets gradually harder.\n\n'
+    +'Return ONLY a JSON array of 15 objects, no other text:\n'
+    +'[{"n":1,"type":"mc","txt":"question","opts":["a","b","c","d"],"cor":0,"marks":1,"exp":"worked explanation","skill":"sub-skill tested"},\n'
+    +' {"n":9,"type":"short","txt":"question","expected":"model answer","marks":2,"exp":"worked explanation","skill":"sub-skill"},\n'
+    +' {"n":13,"type":"long","txt":"question","expected":"model answer","marks":4,"exp":"worked explanation","skill":"sub-skill"}]';
+
+  try{
+    var text=await callAI(prompt,4000);
+    var qs=parseAIJSON(text);
+    if(!Array.isArray(qs)||qs.length===0) throw new Error('The AI did not return any questions.');
+
+    qs.forEach(function(q,i){
+      q.n=i+1;
+      if(!q.type)q.type='mc';
+      if(!q.marks)q.marks=q.type==='long'?4:(q.type==='short'?2:1);
+    });
+
+    var asg={
+      id:'asg_'+Date.now(),
+      subject:subj,
+      topic:topic,
+      level:s.lv,
+      createdAt:new Date().toDateString(),
+      durationMin:60,
+      questions:qs,
+      answers:{},
+      status:'in_progress',
+      remainingSec:60*60,
+      totalMarks:qs.reduce(function(t,q){return t+(q.marks||1);},0)
+    };
+    ensureAssignments().push(asg);
+    if(S.assignments.length>30)S.assignments=S.assignments.slice(-30);
+    sv();
+    uploadFullProgress();
+    openAssignmentPaper(asg.id);
+  }catch(e){
+    SC.innerHTML='<div class="cd"><h2>Could not build the assignment</h2><div class="ds" style="color:var(--e)">'+e.message+'</div>'
+      +'<div style="margin-top:14px"><button class="bt bp" onclick="startAssignment(\''+subj+'\',\''+topic+'\')">Try Again</button> '
+      +'<button class="bt bg" onclick="openAssignments()">Back</button></div></div>';
+  }
+}
+
+function resumeAssignment(id){ openAssignmentPaper(id); }
+
+function findAssignment(id){
+  return ensureAssignments().filter(function(a){return a.id===id;})[0];
+}
+
+// --- The paper on screen ---
+function openAssignmentPaper(id){
+  var asg=findAssignment(id);
+  if(!asg){openAssignments();return;}
+  ASG=asg;
+  var SC=document.getElementById('SC');
+
+  var html='<div class="asg-timer no-print">'
+    +'<div><div style="font-size:12px;color:var(--t2)">Time left</div><div class="t" id="asgClock">'+fmtTime(asg.remainingSec)+'</div></div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap">'
+    +'<button class="bt" id="asgPauseBtn" style="font-size:13px;padding:6px 12px" onclick="toggleAsgTimer()">Pause</button>'
+    +'<button class="bt" style="font-size:13px;padding:6px 12px;background:var(--b)" onclick="printAssignment(\''+asg.id+'\')">Print / PDF</button>'
+    +'<button class="bt" style="font-size:13px;padding:6px 12px;background:var(--b)" onclick="saveAndExitAssignment()">Save &amp; Exit</button>'
+    +'</div></div>';
+
+  html+='<div class="cd"><h2>'+asgTopicLabel(asg.subject,asg.topic)+' Assignment</h2>'
+    +'<div class="ds">Level '+asg.level+' &middot; '+asg.questions.length+' questions &middot; '+asg.totalMarks+' marks &middot; 1 hour</div>'
+    +'<div style="margin-top:8px;font-size:13px;color:var(--t2)">Answer on screen below, or print the paper and upload a photo when you finish.</div></div>';
+
+  asg.questions.forEach(function(q){
+    var saved=asg.answers[q.n];
+    html+='<div class="asg-q"><div class="qn">Question '+q.n+' &middot; '+q.marks+' mark'+(q.marks>1?'s':'')+'</div>';
+    html+='<div style="margin-bottom:10px">'+escapeHtmlAsg(q.txt)+'</div>';
+    if(q.type==='mc'&&q.opts){
+      q.opts.forEach(function(o,i){
+        var sel=(saved===String(i))?' sel':'';
+        html+='<label class="asg-opt'+sel+'" id="asgopt_'+q.n+'_'+i+'" onclick="setAsgChoice('+q.n+','+i+')">'+String.fromCharCode(65+i)+'. '+escapeHtmlAsg(o)+'</label>';
+      });
+    } else {
+      html+='<textarea id="asgtxt_'+q.n+'" placeholder="Write your answer and show your working" oninput="setAsgText('+q.n+',this.value)">'+(saved?escapeHtmlAsg(saved):'')+'</textarea>';
+    }
+    html+='</div>';
+  });
+
+  html+='<div class="cd no-print"><h3>Finished?</h3>'
+    +'<div class="ds">Submit your typed answers, or upload a photo/scan of the paper you wrote on.</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
+    +'<button class="bt bp" onclick="submitAssignmentTyped()">Submit Typed Answers</button>'
+    +'<button class="bt" style="background:#8b5cf6;color:#fff" onclick="document.getElementById(\'asgUpload\').click()">Upload Photo / File</button>'
+    +'</div>'
+    +'<input type="file" id="asgUpload" accept="image/*,.pdf" style="display:none" onchange="submitAssignmentUpload(this)">'
+    +'<div id="asgStatus" style="margin-top:10px"></div></div>';
+
+  SC.innerHTML=html;
+  startAsgTimer();
+}
+
+function escapeHtmlAsg(t){
+  return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function fmtTime(sec){
+  sec=Math.max(0,sec|0);
+  var m=Math.floor(sec/60),s=sec%60;
+  return (m<10?'0':'')+m+':'+(s<10?'0':'')+s;
+}
+
+function setAsgChoice(n,i){
+  if(!ASG)return;
+  ASG.answers[n]=String(i);
+  var q=ASG.questions.filter(function(x){return x.n===n;})[0];
+  if(q&&q.opts){
+    q.opts.forEach(function(o,idx){
+      var el=document.getElementById('asgopt_'+n+'_'+idx);
+      if(el)el.classList.toggle('sel',idx===i);
+    });
+  }
+  sv();
+}
+
+function setAsgText(n,val){
+  if(!ASG)return;
+  ASG.answers[n]=val;
+  // Throttle saving so typing stays smooth
+  clearTimeout(window._asgSaveT);
+  window._asgSaveT=setTimeout(function(){sv();},800);
+}
+
+// --- Timer ---
+function startAsgTimer(){
+  stopAsgTimer();
+  if(!ASG)return;
+  ASG._paused=false;
+  ASG_TIMER=setInterval(function(){
+    if(!ASG||ASG._paused)return;
+    ASG.remainingSec--;
+    var el=document.getElementById('asgClock');
+    if(el){
+      el.textContent=fmtTime(ASG.remainingSec);
+      if(ASG.remainingSec<=300)el.style.color='var(--e)';
+    }
+    if(ASG.remainingSec%15===0)sv();
+    if(ASG.remainingSec<=0){
+      stopAsgTimer();
+      var st=document.getElementById('asgStatus');
+      if(st)st.innerHTML='<div style="padding:10px;background:var(--wl);border-radius:var(--r)">Time is up. You can still submit what you have done.</div>';
+    }
+  },1000);
+}
+
+function stopAsgTimer(){
+  if(ASG_TIMER){clearInterval(ASG_TIMER);ASG_TIMER=null;}
+}
+
+function toggleAsgTimer(){
+  if(!ASG)return;
+  ASG._paused=!ASG._paused;
+  var b=document.getElementById('asgPauseBtn');
+  if(b)b.textContent=ASG._paused?'Resume':'Pause';
+}
+
+function saveAndExitAssignment(){
+  stopAsgTimer();
+  sv();
+  uploadFullProgress();
+  ASG=null;
+  openAssignments();
+}
+
+// --- Printable question paper ---
+function printAssignment(id){
+  var asg=findAssignment(id)||ASG;
+  if(!asg)return;
+  var area=document.getElementById('printArea');
+  if(!area)return;
+
+  var h='<div style="font-family:Arial,Helvetica,sans-serif;color:#000">';
+  h+='<div style="border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:14px">';
+  h+='<h1 style="margin:0;font-size:20px">'+asgTopicLabel(asg.subject,asg.topic)+' Assignment</h1>';
+  h+='<div style="font-size:13px;margin-top:4px">Level '+asg.level+' &nbsp;|&nbsp; '+asg.questions.length+' questions &nbsp;|&nbsp; '+asg.totalMarks+' marks &nbsp;|&nbsp; Time: 1 hour</div>';
+  h+='<div style="font-size:13px;margin-top:8px">Name: ______________________________ &nbsp;&nbsp; Date: ________________</div>';
+  h+='</div>';
+
+  asg.questions.forEach(function(q){
+    h+='<div class="pq">';
+    h+='<div style="font-weight:bold;font-size:13px">Question '+q.n+' ('+q.marks+' mark'+(q.marks>1?'s':'')+')</div>';
+    h+='<div style="margin:4px 0 6px 0;font-size:14px">'+escapeHtmlAsg(q.txt)+'</div>';
+    if(q.type==='mc'&&q.opts){
+      q.opts.forEach(function(o,i){
+        h+='<div style="font-size:14px;margin:3px 0 3px 10px">&#9744; '+String.fromCharCode(65+i)+'. '+escapeHtmlAsg(o)+'</div>';
+      });
+    } else {
+      // Writing space sized to the marks available
+      var lines=q.type==='long'?7:3;
+      for(var i=0;i<lines;i++) h+='<div class="pq-lines"></div>';
+    }
+    h+='</div>';
+  });
+
+  h+='<div style="margin-top:20px;font-size:11px;color:#555;border-top:1px solid #999;padding-top:6px">Generated by the Learning Portal. When finished, photograph this paper and upload it in the app to get it marked.</div>';
+  h+='</div>';
+
+  area.innerHTML=h;
+  window.print();
+}
+
+// --- Marking: typed answers ---
+async function submitAssignmentTyped(){
+  if(!ASG)return;
+  var answered=Object.keys(ASG.answers).length;
+  if(answered===0){
+    alert('You have not answered anything yet. Answer at least one question, or use Upload Photo if you wrote the paper out.');
+    return;
+  }
+  if(answered<ASG.questions.length){
+    if(!confirm('You have answered '+answered+' of '+ASG.questions.length+' questions. Submit anyway?'))return;
+  }
+  stopAsgTimer();
+
+  var status=document.getElementById('asgStatus');
+  if(status)status.innerHTML='<div style="padding:10px;background:var(--wl);border-radius:var(--r)">Marking your paper...</div>';
+
+  // Mark the multiple choice ourselves — it is exact and costs nothing
+  var autoMarked=[],needAI=[];
+  ASG.questions.forEach(function(q){
+    var given=ASG.answers[q.n];
+    if(q.type==='mc'){
+      var correct=(given!==undefined&&Number(given)===Number(q.cor));
+      autoMarked.push({n:q.n,awarded:correct?q.marks:0,max:q.marks,correct:correct,
+        given:(given!==undefined&&q.opts)?q.opts[Number(given)]:'(no answer)',
+        expected:q.opts?q.opts[q.cor]:'',comment:correct?'Correct.':(q.exp||''),skill:q.skill||'',txt:q.txt});
+    } else {
+      needAI.push({n:q.n,txt:q.txt,marks:q.marks,expected:q.expected||'',given:given||'',skill:q.skill||''});
+    }
+  });
+
+  var aiMarked=[];
+  if(needAI.length>0){
+    var prompt='You are marking a Year 6-7 student\'s assignment on '+asgTopicLabel(ASG.subject,ASG.topic)+'.\n\n'
+      +'Mark each written answer below. Be fair and encouraging but accurate. Award partial marks for partially correct work or correct method with a wrong final answer.\n\n';
+    needAI.forEach(function(q){
+      prompt+='---\nQuestion '+q.n+' ('+q.marks+' marks): '+q.txt+'\n'
+        +'Model answer: '+q.expected+'\n'
+        +'Student answered: '+(q.given||'(left blank)')+'\n';
+    });
+    prompt+='\nReturn ONLY a JSON array, one object per question:\n'
+      +'[{"n":9,"awarded":2,"max":2,"comment":"what was right or wrong, and how to fix it","misconception":"the specific misunderstanding, or empty string if none"}]';
+    try{
+      var res=await callAI(prompt,2500);
+      aiMarked=parseAIJSON(res);
+      if(!Array.isArray(aiMarked))aiMarked=[];
+    }catch(e){
+      // If marking fails, don't lose the student's work — award nothing but explain
+      aiMarked=needAI.map(function(q){
+        return {n:q.n,awarded:0,max:q.marks,comment:'Could not be marked automatically ('+e.message+'). Ask a parent to check this one.',misconception:''};
+      });
+    }
+  }
+
+  finishAssignmentMarking(autoMarked,aiMarked,null);
+}
+
+// --- Marking: uploaded photo or PDF of handwritten work ---
+async function submitAssignmentUpload(input){
+  if(!ASG)return;
+  var f=input.files&&input.files[0];
+  if(!f)return;
+  var status=document.getElementById('asgStatus');
+  if(f.size>10*1024*1024){
+    if(status)status.innerHTML='<div style="padding:10px;background:var(--el);border-radius:var(--r);color:var(--e)">That file is larger than 10MB. Please take a smaller photo.</div>';
+    input.value='';return;
+  }
+  stopAsgTimer();
+  if(status)status.innerHTML='<div style="padding:10px;background:var(--wl);border-radius:var(--r)">Reading your work and marking it. This can take up to a minute...</div>';
+
+  var reader=new FileReader();
+  reader.onload=async function(ev){
+    var dataUrl=ev.target.result;
+    var prompt='This image or PDF shows a Year 6-7 student\'s handwritten answers to the assignment below, on the topic '+asgTopicLabel(ASG.subject,ASG.topic)+'.\n\n'
+      +'Read their handwriting carefully and mark each question you can find. If a question is missing or unreadable, award 0 and say so in the comment.\n\n'
+      +'THE QUESTIONS AND MODEL ANSWERS:\n';
+    ASG.questions.forEach(function(q){
+      prompt+='---\nQuestion '+q.n+' ('+q.marks+' marks): '+q.txt+'\n';
+      if(q.type==='mc'&&q.opts){
+        prompt+='Options: '+q.opts.map(function(o,i){return String.fromCharCode(65+i)+') '+o;}).join('  ')+'\n';
+        prompt+='Correct option: '+String.fromCharCode(65+(q.cor||0))+'\n';
+      } else {
+        prompt+='Model answer: '+(q.expected||'')+'\n';
+      }
+    });
+    prompt+='\nAward partial marks for correct method with a wrong answer. Be accurate but encouraging.\n\n'
+      +'Return ONLY a JSON array, one object per question:\n'
+      +'[{"n":1,"awarded":1,"max":1,"given":"what the student wrote","comment":"feedback","misconception":"specific misunderstanding or empty string"}]';
+
+    try{
+      var res=await callAIWithFile(prompt,dataUrl,4000);
+      var marked=parseAIJSON(res);
+      if(!Array.isArray(marked)) throw new Error('Unexpected marking format');
+      finishAssignmentMarking([],marked,dataUrl);
+    }catch(e){
+      var msg=e.message==='UNSUPPORTED_FILE'
+        ? 'That file type cannot be read visually. Please upload a photo (JPG/PNG) or a PDF.'
+        : 'Marking failed: '+e.message;
+      if(status)status.innerHTML='<div style="padding:10px;background:var(--el);border-radius:var(--r);color:var(--e)">'+msg+'</div>';
+    }
+    input.value='';
+  };
+  reader.readAsDataURL(f);
+}
+
+// --- Combine marks, update progress, store the result ---
+function finishAssignmentMarking(autoMarked,aiMarked,uploadedImage){
+  var byN={};
+  autoMarked.forEach(function(m){byN[m.n]=m;});
+  (aiMarked||[]).forEach(function(m){
+    var q=ASG.questions.filter(function(x){return x.n===Number(m.n);})[0];
+    var max=q?q.marks:(m.max||1);
+    var awarded=Math.max(0,Math.min(max,Number(m.awarded)||0));
+    byN[Number(m.n)]={n:Number(m.n),awarded:awarded,max:max,correct:awarded>=max,
+      given:m.given||(ASG.answers[m.n]||''),expected:q?(q.expected||''):'',
+      comment:m.comment||'',misconception:m.misconception||'',skill:q?(q.skill||''):'',txt:q?q.txt:''};
+  });
+
+  // Anything unmarked counts as not attempted
+  var perQuestion=ASG.questions.map(function(q){
+    return byN[q.n]||{n:q.n,awarded:0,max:q.marks,correct:false,given:'(no answer)',
+      expected:q.expected||'',comment:'Not attempted.',misconception:'',skill:q.skill||'',txt:q.txt};
+  });
+
+  // Always derive the total from the questions actually marked. Trusting a
+  // stored totalMarks would skew every percentage if the two ever disagreed.
+  var scored=perQuestion.reduce(function(t,m){return t+m.awarded;},0);
+  var total=perQuestion.reduce(function(t,m){return t+(m.max||0);},0);
+  var pct=total>0?Math.round(scored/total*100):0;
+
+  ASG.result={
+    score:scored,total:total,pct:pct,
+    perQuestion:perQuestion,
+    markedAt:new Date().toDateString(),
+    hadUpload:!!uploadedImage
+  };
+  ASG.status='marked';
+
+  // Feed the outcome into normal progress tracking
+  var s=S[ASG.subject][ASG.topic];
+  var right=perQuestion.filter(function(m){return m.correct;}).length;
+  var wrong=perQuestion.length-right;
+  s.ok=(s.ok||0)+right;
+  s.no=(s.no||0)+wrong;
+  s.h=s.h||[];
+  s.h.push({date:new Date().toDateString(),score:right,total:perQuestion.length,pct:pct});
+
+  // Record mistakes so future questions target them
+  if(!s.mk)s.mk=[];
+  perQuestion.forEach(function(m){
+    if(!m.correct&&m.txt){
+      s.mk.push({date:new Date().toDateString(),q:String(m.txt).substring(0,180),
+        chose:String(m.given||'').substring(0,80),
+        right:String(m.expected||m.comment||'').substring(0,80),lv:ASG.level});
+    }
+  });
+  if(s.mk.length>20)s.mk=s.mk.slice(-20);
+
+  // Same level rules as quizzes
+  if(pct>=80&&s.lv<5)s.lv++;
+  else if(pct<40&&s.lv>1)s.lv--;
+
+  S.total=(S.total||0)+1;
+  S.done=S.done||[];
+  S.done.push({date:new Date().toDateString(),subject:ASG.subject,topic:ASG.topic,score:scored+'/'+total});
+  markActive();
+  sv();
+  syncPerformanceToServer();
+
+  viewAssignmentResult(ASG.id);
+}
+
+// --- Result screen ---
+function viewAssignmentResult(id){
+  var asg=findAssignment(id);
+  if(!asg||!asg.result){openAssignments();return;}
+  var r=asg.result;
+  var SC=document.getElementById('SC');
+  var col=r.pct>=80?'var(--g)':r.pct>=50?'var(--w)':'var(--e)';
+
+  var html='<div class="cd" style="text-align:center"><h2>'+(r.pct>=80?'Excellent work':r.pct>=50?'Good effort':'Keep going')+'</h2>';
+  html+='<div style="font-size:44px;font-weight:700;color:'+col+';margin:12px 0">'+r.pct+'%</div>';
+  html+='<div class="ds">'+r.score+' out of '+r.total+' marks &middot; '+asgTopicLabel(asg.subject,asg.topic)+' &middot; Level '+asg.level+'</div></div>';
+
+  // Where marks were lost
+  var weak={};
+  r.perQuestion.forEach(function(m){
+    if(!m.correct&&m.skill){weak[m.skill]=(weak[m.skill]||0)+1;}
+  });
+  var weakList=Object.keys(weak).sort(function(a,b){return weak[b]-weak[a];}).slice(0,4);
+  if(weakList.length>0){
+    html+='<div class="cd"><h3>What to practise next</h3><ul style="margin:8px 0 0 18px">';
+    weakList.forEach(function(k){html+='<li>'+escapeHtmlAsg(k)+' <span style="color:var(--t2)">('+weak[k]+' question'+(weak[k]>1?'s':'')+')</span></li>';});
+    html+='</ul><div style="margin-top:12px"><button class="bt bp" onclick="startAssignment(\''+asg.subject+'\',\''+asg.topic+'\')">New assignment on this topic</button></div></div>';
+  }
+
+  html+='<div class="cd"><h3>Question by question</h3>';
+  r.perQuestion.forEach(function(m){
+    var ok=m.correct;
+    var bg=ok?'var(--gl)':(m.awarded>0?'var(--wl)':'var(--el)');
+    html+='<div style="padding:12px;border-radius:var(--r);background:'+bg+';margin-bottom:10px">';
+    html+='<div style="font-weight:700;font-size:13px">Q'+m.n+' &middot; '+m.awarded+'/'+m.max+' marks</div>';
+    if(m.txt)html+='<div style="font-size:13px;margin:5px 0">'+escapeHtmlAsg(m.txt)+'</div>';
+    if(m.given)html+='<div style="font-size:13px;margin:3px 0"><strong>Your answer:</strong> '+escapeHtmlAsg(m.given)+'</div>';
+    if(!ok&&m.expected)html+='<div style="font-size:13px;margin:3px 0"><strong>Expected:</strong> '+escapeHtmlAsg(m.expected)+'</div>';
+    if(m.comment)html+='<div style="font-size:13px;margin-top:5px">'+escapeHtmlAsg(m.comment)+'</div>';
+    if(m.misconception)html+='<div style="font-size:12px;margin-top:5px;color:var(--t2)"><em>Watch out for: '+escapeHtmlAsg(m.misconception)+'</em></div>';
+    html+='</div>';
+  });
+  html+='</div>';
+
+  html+='<div class="cd"><button class="bt bg" onclick="openAssignments()">Back to assignments</button></div>';
+  SC.innerHTML=html;
+  ASG=null;
 }
 
 // === FREE WRITING STUDIO ===
@@ -4619,6 +5252,24 @@ function downloadAndMergeProgress(kid,callback){
         Object.keys(remote.aiQ).forEach(function(k){
           if(!local.aiQ[k]){local.aiQ[k]=remote.aiQ[k];merged=true;}
         });
+      }
+
+      // Merge assignments by id, keeping the more advanced copy
+      if(remote.assignments&&remote.assignments.length){
+        local.assignments=local.assignments||[];
+        var rank=function(x){return x.status==='marked'?2:(x.status==='submitted'?1:0);};
+        var idx={};
+        local.assignments.forEach(function(a,i){if(a&&a.id)idx[a.id]=i;});
+        remote.assignments.forEach(function(a){
+          if(!a||!a.id)return;
+          if(idx[a.id]===undefined){local.assignments.push(a);merged=true;return;}
+          var prev=local.assignments[idx[a.id]];
+          if(rank(a)>rank(prev)){local.assignments[idx[a.id]]=a;merged=true;return;}
+          if(rank(a)===rank(prev)&&Object.keys(a.answers||{}).length>Object.keys(prev.answers||{}).length){
+            local.assignments[idx[a.id]]=a;merged=true;
+          }
+        });
+        if(local.assignments.length>30)local.assignments=local.assignments.slice(-30);
       }
 
       if(merged){

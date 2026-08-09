@@ -344,6 +344,25 @@ function mergeProgress(stored, incoming) {
   // AI-generated question cache: union by key
   out.aiQ = Object.assign({}, stored.aiQ || {}, incoming.aiQ || {});
 
+  // Assignments: union by id. If the same paper exists on both sides, keep the
+  // more advanced copy — a marked paper always beats an in-progress one, and
+  // otherwise the version with more answers filled in wins.
+  const asgById = {};
+  (stored.assignments || []).forEach(a => { if (a && a.id) asgById[a.id] = a; });
+  (incoming.assignments || []).forEach(a => {
+    if (!a || !a.id) return;
+    const prev = asgById[a.id];
+    if (!prev) { asgById[a.id] = a; return; }
+    const rank = x => (x.status === 'marked' ? 2 : x.status === 'submitted' ? 1 : 0);
+    if (rank(a) > rank(prev)) { asgById[a.id] = a; return; }
+    if (rank(a) === rank(prev)) {
+      const na = Object.keys(a.answers || {}).length;
+      const np = Object.keys(prev.answers || {}).length;
+      if (na > np) asgById[a.id] = a;
+    }
+  });
+  out.assignments = Object.keys(asgById).map(k => asgById[k]).slice(-30);
+
   return out;
 }
 
