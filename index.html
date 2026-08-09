@@ -463,7 +463,10 @@ function sv(){saveDB(DB);}
 // === AI MODEL CONFIGURATION ===
 const AI_MODELS={
   claude:[
-    {id:'claude-opus-4-6',name:'Claude Opus 4.6',desc:'Most capable, premium quality',cost:'Paid'},
+    {id:'claude-opus-5',name:'Claude Opus 5',desc:'Latest flagship, most capable',cost:'Paid'},
+    {id:'claude-fable-5',name:'Claude Fable 5',desc:'Newest model, excellent quality',cost:'Paid'},
+    {id:'claude-sonnet-5',name:'Claude Sonnet 5',desc:'Fast and very capable',cost:'Paid'},
+    {id:'claude-opus-4-6',name:'Claude Opus 4.6',desc:'Premium quality',cost:'Paid'},
     {id:'claude-sonnet-4-6',name:'Claude Sonnet 4.6',desc:'Fast and capable',cost:'Paid'},
     {id:'claude-haiku-4-5-20251001',name:'Claude Haiku 4.5',desc:'Fastest, most affordable',cost:'Paid'},
     {id:'claude-sonnet-4-5-20250514',name:'Claude Sonnet 4.5',desc:'Previous gen, strong reasoning',cost:'Paid'},
@@ -471,8 +474,10 @@ const AI_MODELS={
     {id:'claude-3-5-haiku-20241022',name:'Claude 3.5 Haiku',desc:'Previous gen, very fast',cost:'Paid'}
   ],
   gemini:[
-    {id:'gemini-2.5-flash-preview-05-20',name:'Gemini 2.5 Flash',desc:'Latest and smartest free model',cost:'Free'},
-    {id:'gemini-2.5-pro-preview-06-05',name:'Gemini 2.5 Pro',desc:'Most capable Gemini model',cost:'Free tier'},
+    {id:'gemini-3.6-flash',name:'Gemini 3.6 Flash',desc:'Latest, best free model',cost:'Free'},
+    {id:'gemini-3.5-flash-lite',name:'Gemini 3.5 Flash Lite',desc:'Ultra-fast, low cost',cost:'Free'},
+    {id:'gemini-2.5-flash-preview-05-20',name:'Gemini 2.5 Flash',desc:'Smart and free',cost:'Free'},
+    {id:'gemini-2.5-pro-preview-06-05',name:'Gemini 2.5 Pro',desc:'Most capable older Gemini',cost:'Free tier'},
     {id:'gemini-2.0-flash',name:'Gemini 2.0 Flash',desc:'Fast and reliable',cost:'Free'},
     {id:'gemini-1.5-pro',name:'Gemini 1.5 Pro',desc:'Strong reasoning, free tier',cost:'Free tier'},
     {id:'gemini-1.5-flash',name:'Gemini 1.5 Flash',desc:'Lightweight and fast',cost:'Free'}
@@ -514,7 +519,7 @@ async function callClaude(prompt,maxTokens){
 }
 
 async function callGemini(prompt,maxTokens){
-  let modelsToTry=[DB.settings.model||'gemini-2.0-flash','gemini-2.5-flash-preview-05-20','gemini-1.5-flash','gemini-2.0-flash','gemini-1.5-pro'];
+  let modelsToTry=[DB.settings.model||'gemini-3.6-flash','gemini-3.6-flash','gemini-2.5-flash-preview-05-20','gemini-2.0-flash','gemini-1.5-flash','gemini-1.5-pro'];
   let seen=new Set();
   let lastErr='';
   for(let model of modelsToTry){
@@ -3084,7 +3089,7 @@ function renderStudentSettings(el){
   let providerBtns=['claude','gemini'].map(function(p){
     let isOn=DB.settings.provider===p;
     let label=p==='claude'?'Claude (Paid)':'Google Gemini (Free)';
-    return `<button class="${isOn?'on':''}" onclick="DB.settings.provider='${p}';if(DB.settings.provider==='gemini'&&!DB.settings.model.startsWith('gemini'))DB.settings.model='gemini-2.0-flash';if(DB.settings.provider==='claude'&&!DB.settings.model.startsWith('claude'))DB.settings.model='claude-opus-4-6';saveDB(DB);go('settings')">${label}</button>`;
+    return `<button class="${isOn?'on':''}" onclick="DB.settings.provider='${p}';if(DB.settings.provider==='gemini'&&!DB.settings.model.startsWith('gemini'))DB.settings.model='gemini-3.6-flash';if(DB.settings.provider==='claude'&&!DB.settings.model.startsWith('claude'))DB.settings.model='claude-opus-5';saveDB(DB);go('settings')">${label}</button>`;
   }).join('');
   let models=AI_MODELS[DB.settings.provider]||[];
   let modelOpts=models.map(function(m){
@@ -3638,7 +3643,7 @@ function renderAdminSettings(el){
   var providerBtns=['claude','gemini'].map(function(p){
     var isOn=DB.settings.provider===p;
     var label=p==='claude'?'Claude (Paid)':'Google Gemini (Free)';
-    return '<button class="'+(isOn?'on':'')+'" onclick="DB.settings.provider=\''+p+'\';if(DB.settings.provider===\'gemini\'&&!DB.settings.model.startsWith(\'gemini\'))DB.settings.model=\'gemini-2.0-flash\';if(DB.settings.provider===\'claude\'&&!DB.settings.model.startsWith(\'claude\'))DB.settings.model=\'claude-sonnet-4-6\';saveDB(DB);adminTab(\'settings\')">'+label+'<\/button>';
+    return '<button class="'+(isOn?'on':'')+'" onclick="DB.settings.provider=\''+p+'\';if(DB.settings.provider===\'gemini\'&&!DB.settings.model.startsWith(\'gemini\'))DB.settings.model=\'gemini-3.6-flash\';if(DB.settings.provider===\'claude\'&&!DB.settings.model.startsWith(\'claude\'))DB.settings.model=\'claude-opus-5\';saveDB(DB);adminTab(\'settings\')">'+label+'<\/button>';
   }).join('');
   var models=AI_MODELS[DB.settings.provider]||[];
   var modelOpts=models.map(function(m){
