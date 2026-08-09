@@ -1,4 +1,6 @@
-const CACHE_NAME = 'learn-portal-v1';
+// Bump this string on every release so old cached files are cleared.
+// The activate handler deletes any cache whose name doesn't match.
+const CACHE_NAME = 'learn-portal-v2';
 const OFFLINE_URL = '/';
 
 // Files to cache for offline use

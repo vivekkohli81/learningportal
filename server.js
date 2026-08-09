@@ -25,6 +25,93 @@ function seedFile(filename, subdir) {
   }
 }
 
+// === VOLUME DETECTION ===
+// If RAILWAY_VOLUME_MOUNT_PATH is not set, DATA_ROOT falls back to the app
+// directory — which Railway REPLACES on every deploy. That means all student
+// progress would be lost on each upgrade. We detect and loudly warn about it.
+const USING_VOLUME = !!process.env.RAILWAY_VOLUME_MOUNT_PATH;
+if (!USING_VOLUME) {
+  console.warn('==========================================================');
+  console.warn('WARNING: No persistent volume detected.');
+  console.warn('Student progress will be LOST on the next deploy.');
+  console.warn('Fix: in the Railway dashboard add a Volume, then set');
+  console.warn('RAILWAY_VOLUME_MOUNT_PATH to its mount path (e.g. /data).');
+  console.warn('==========================================================');
+} else {
+  console.log('Persistent volume active at:', process.env.RAILWAY_VOLUME_MOUNT_PATH);
+}
+
+// === BACKUPS ===
+// Rolling snapshots so a bad merge, corrupted write, or accidental reset
+// can always be rolled back. Backups live on the same volume as the data.
+const BACKUP_DIR = path.join(DATA_ROOT, 'backups');
+if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+
+// Write a file safely: snapshot the previous version first, then write
+// atomically via a temp file so a crash mid-write cannot corrupt the original.
+function safeWriteJSON(filePath, data, backupLabel) {
+  try {
+    if (fs.existsSync(filePath)) {
+      const label = backupLabel || path.basename(filePath, '.json');
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const backupPath = path.join(BACKUP_DIR, label + '__' + stamp + '.json');
+      // Only snapshot if we haven't already backed this file up in the last 10 min,
+      // otherwise frequent syncs would flood the backup folder.
+      if (!recentBackupExists(label, 10 * 60 * 1000)) {
+        fs.copyFileSync(filePath, backupPath);
+      }
+    }
+  } catch (e) {
+    console.log('Backup step failed (continuing with write):', e.message);
+  }
+
+  // Atomic write
+  const tmp = filePath + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+  fs.renameSync(tmp, filePath);
+
+  pruneBackups();
+}
+
+function recentBackupExists(label, windowMs) {
+  try {
+    const now = Date.now();
+    return fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.startsWith(label + '__'))
+      .some(f => {
+        const st = fs.statSync(path.join(BACKUP_DIR, f));
+        return (now - st.mtimeMs) < windowMs;
+      });
+  } catch (e) { return false; }
+}
+
+// Keep the 40 most recent backups per label, plus never delete the oldest
+// one for each calendar day (so long-term history survives).
+function pruneBackups() {
+  try {
+    const files = fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.json'));
+    const byLabel = {};
+    files.forEach(f => {
+      const label = f.split('__')[0];
+      (byLabel[label] = byLabel[label] || []).push(f);
+    });
+    Object.keys(byLabel).forEach(label => {
+      const list = byLabel[label]
+        .map(f => ({ f, t: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs }))
+        .sort((a, b) => b.t - a.t);
+      const keepDaily = new Set();
+      list.forEach(x => {
+        const day = new Date(x.t).toISOString().slice(0, 10);
+        if (!keepDaily.has(day)) keepDaily.add(day), (x.keepDaily = true);
+      });
+      list.slice(40).forEach(x => {
+        if (x.keepDaily) return;
+        try { fs.unlinkSync(path.join(BACKUP_DIR, x.f)); } catch (e) {}
+      });
+    });
+  } catch (e) {}
+}
+
 // === PERFORMANCE DATABASE ===
 const PERF_DIR = path.join(DATA_ROOT, 'data');
 if (!fs.existsSync(PERF_DIR)) fs.mkdirSync(PERF_DIR, { recursive: true });
@@ -148,12 +235,116 @@ function readAccounts() {
 
 function writeAccounts(data) {
   data.lastUpdated = new Date().toISOString();
-  fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(data, null, 2), 'utf8');
+  // Backed-up atomic write — losing this file would lock everyone out
+  safeWriteJSON(ACCOUNTS_FILE, data, 'accounts');
 }
 
 function getSyncPath(username) {
   const safe = username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
   return path.join(SYNC_DIR, safe + '.json');
+}
+
+// === SERVER-SIDE PROGRESS MERGE ===
+// Critical for cross-device safety. Without this, a device holding stale data
+// would overwrite newer progress made on another device. We never discard
+// work: for every field we keep the most complete version we have seen.
+function mergeTopic(stored, incoming) {
+  if (!stored) return incoming;
+  if (!incoming) return stored;
+  const out = Object.assign({}, stored);
+
+  // Attempt counts: take the more advanced record. Work is only ever added,
+  // never undone, so a lower total means that device is stale.
+  // On a tie, prefer the record with more correct answers so a stale device
+  // can never downgrade the student's accuracy.
+  const storedTotal = (stored.ok || 0) + (stored.no || 0);
+  const incomingTotal = (incoming.ok || 0) + (incoming.no || 0);
+  if (incomingTotal > storedTotal ||
+      (incomingTotal === storedTotal && (incoming.ok || 0) > (stored.ok || 0))) {
+    out.ok = incoming.ok || 0;
+    out.no = incoming.no || 0;
+  }
+
+  // Difficulty level: keep the highest reached
+  out.lv = Math.max(stored.lv || 1, incoming.lv || 1);
+
+  // Quiz history: union, deduplicated by date + score + total
+  const hist = (stored.h || []).slice();
+  const seenH = new Set(hist.map(h => h.date + '|' + h.score + '|' + h.total));
+  (incoming.h || []).forEach(h => {
+    const k = h.date + '|' + h.score + '|' + h.total;
+    if (!seenH.has(k)) { hist.push(h); seenH.add(k); }
+  });
+  out.h = hist;
+
+  // Seen question IDs: union so a question is never served twice
+  const seenIds = new Set([...(stored.sn || []), ...(incoming.sn || [])]);
+  out.sn = Array.from(seenIds);
+
+  // Mistake history: union deduplicated by question text, newest 20 kept.
+  // This is what powers adaptive question generation.
+  const mistakes = (stored.mk || []).slice();
+  const seenM = new Set(mistakes.map(m => (m.q || '') + '|' + (m.date || '')));
+  (incoming.mk || []).forEach(m => {
+    const k = (m.q || '') + '|' + (m.date || '');
+    if (!seenM.has(k)) { mistakes.push(m); seenM.add(k); }
+  });
+  out.mk = mistakes.slice(-20);
+
+  return out;
+}
+
+function mergeProgress(stored, incoming) {
+  if (!stored) return incoming;
+  if (!incoming) return stored;
+  const out = JSON.parse(JSON.stringify(stored));
+
+  ['english', 'maths', 'science', 'ib7'].forEach(subj => {
+    if (!incoming[subj]) return;
+    if (!out[subj]) out[subj] = {};
+    Object.keys(incoming[subj]).forEach(topic => {
+      out[subj][topic] = mergeTopic(out[subj][topic], incoming[subj][topic]);
+    });
+  });
+
+  // Competition prep topics
+  if (incoming.comp) {
+    if (!out.comp) out.comp = {};
+    Object.keys(incoming.comp).forEach(t => {
+      out.comp[t] = mergeTopic(out.comp[t], incoming.comp[t]);
+    });
+  }
+
+  // Writings: union by date + title so nothing the student wrote is lost
+  const writings = (stored.wr || []).slice();
+  const seenW = new Set(writings.map(w => (w.date || '') + '|' + (w.title || '')));
+  (incoming.wr || []).forEach(w => {
+    const k = (w.date || '') + '|' + (w.title || '');
+    if (!seenW.has(k)) { writings.push(w); seenW.add(k); }
+  });
+  out.wr = writings;
+
+  // Completed activity log: union by date + subject + topic + score
+  const done = (stored.done || []).slice();
+  const seenD = new Set(done.map(d => (d.date || '') + '|' + (d.subject || '') + '|' + (d.topic || '') + '|' + (d.score || '')));
+  (incoming.done || []).forEach(d => {
+    const k = (d.date || '') + '|' + (d.subject || '') + '|' + (d.topic || '') + '|' + (d.score || '');
+    if (!seenD.has(k)) { done.push(d); seenD.add(k); }
+  });
+  out.done = done;
+
+  // Active days: union, so streaks stay accurate across devices
+  const days = new Set([...(stored.activeDays || []), ...(incoming.activeDays || [])]);
+  out.activeDays = Array.from(days);
+
+  // Scalar counters: keep the maximum
+  out.total = Math.max(stored.total || 0, incoming.total || 0);
+  out.streak = Math.max(stored.streak || 0, incoming.streak || 0);
+
+  // AI-generated question cache: union by key
+  out.aiQ = Object.assign({}, stored.aiQ || {}, incoming.aiQ || {});
+
+  return out;
 }
 
 function getPerfPath(username) {
@@ -226,6 +417,136 @@ const server = http.createServer(async (req, res) => {
       'Access-Control-Allow-Headers': 'Content-Type, x-api-key, anthropic-version'
     });
     res.end();
+    return;
+  }
+
+  // === HEALTH / DATA SAFETY CHECK ===
+  // Open this in a browser to confirm data will survive the next deploy.
+  if (req.url === '/api/health' && req.method === 'GET') {
+    const info = {
+      status: 'ok',
+      serverTime: new Date().toISOString(),
+      persistentVolume: {
+        active: USING_VOLUME,
+        mountPath: process.env.RAILWAY_VOLUME_MOUNT_PATH || null,
+        dataRoot: DATA_ROOT,
+        verdict: USING_VOLUME
+          ? 'SAFE - student data is stored on a persistent volume and will survive deploys.'
+          : 'AT RISK - no volume detected. Data is in the app directory and WILL BE LOST on the next deploy. Add a Volume in Railway and set RAILWAY_VOLUME_MOUNT_PATH.'
+      },
+      stored: {},
+      backups: {}
+    };
+
+    function summarise(dir, label) {
+      try {
+        if (!fs.existsSync(dir)) return { files: 0 };
+        const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+        let newest = null;
+        files.forEach(f => {
+          const st = fs.statSync(path.join(dir, f));
+          if (!newest || st.mtimeMs > newest) newest = st.mtimeMs;
+        });
+        return {
+          files: files.length,
+          names: files.slice(0, 10),
+          lastModified: newest ? new Date(newest).toISOString() : null
+        };
+      } catch (e) { return { error: e.message }; }
+    }
+
+    info.stored.progressSync = summarise(SYNC_DIR);
+    info.stored.performance = summarise(PERF_DIR);
+    info.stored.quizResults = summarise(QUIZ_DIR);
+    info.stored.writing = summarise(WRITING_DIR);
+    info.stored.homework = summarise(HOMEWORK_DIR);
+    info.backups = summarise(BACKUP_DIR);
+
+    // Warn if the seed template is the only thing present
+    info.accountsFileExists = fs.existsSync(ACCOUNTS_FILE);
+
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(info, null, 2));
+    return;
+  }
+
+  // === FULL BACKUP EXPORT ===
+  // Downloads every piece of student data as a single JSON file.
+  if (req.url === '/api/backup' && req.method === 'GET') {
+    try {
+      const bundle = {
+        exportedAt: new Date().toISOString(),
+        version: 1,
+        accounts: readAccounts(),
+        sync: {},
+        performance: {},
+        quizResults: {},
+        writing: {},
+        homework: {}
+      };
+      function loadDir(dir, target) {
+        if (!fs.existsSync(dir)) return;
+        fs.readdirSync(dir).filter(f => f.endsWith('.json')).forEach(f => {
+          if (f === 'accounts.json') return;
+          try { target[f.replace('.json', '')] = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch (e) {}
+        });
+      }
+      loadDir(SYNC_DIR, bundle.sync);
+      loadDir(PERF_DIR, bundle.performance);
+      loadDir(QUIZ_DIR, bundle.quizResults);
+      loadDir(WRITING_DIR, bundle.writing);
+      loadDir(HOMEWORK_DIR, bundle.homework);
+
+      const fname = 'riyansh-portal-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Content-Disposition': 'attachment; filename="' + fname + '"',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(JSON.stringify(bundle, null, 2));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // === RESTORE FROM BACKUP ===
+  // Merges an exported bundle back in. Uses the same union merge as normal
+  // sync, so restoring can only ever add data back — never remove newer work.
+  if (req.url === '/api/restore' && req.method === 'POST') {
+    try {
+      const bundle = JSON.parse(await readBody(req));
+      if (!bundle || bundle.version !== 1) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'Unrecognised backup file' }));
+        return;
+      }
+      const restored = [];
+      Object.keys(bundle.sync || {}).forEach(user => {
+        const incoming = bundle.sync[user];
+        if (!incoming || !incoming.progress) return;
+        const fp = getSyncPath(user);
+        let existing = null;
+        try { if (fs.existsSync(fp)) existing = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (e) {}
+        const mergedProg = existing && existing.progress
+          ? mergeProgress(existing.progress, incoming.progress)
+          : incoming.progress;
+        safeWriteJSON(fp, {
+          username: user,
+          name: incoming.name || user,
+          progress: mergedProg,
+          lastSyncDate: new Date().toISOString(),
+          lastDevice: 'restore'
+        }, 'sync-' + user);
+        restored.push(user);
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ success: true, restored: restored }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
     return;
   }
 
@@ -366,11 +687,36 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: 'username is required' }));
         return;
       }
-      body.lastSyncDate = new Date().toISOString();
       const fp = getSyncPath(body.username);
-      fs.writeFileSync(fp, JSON.stringify(body, null, 2), 'utf8');
+
+      // Merge with whatever is already stored rather than overwriting.
+      // Protects against a device with stale data wiping newer progress.
+      let existing = null;
+      try {
+        if (fs.existsSync(fp)) existing = JSON.parse(fs.readFileSync(fp, 'utf8'));
+      } catch (e) {
+        console.log('Could not read existing sync file, treating as new:', e.message);
+      }
+
+      let finalProgress = body.progress;
+      let didMerge = false;
+      if (existing && existing.progress && body.progress) {
+        finalProgress = mergeProgress(existing.progress, body.progress);
+        didMerge = true;
+      }
+
+      const record = {
+        username: body.username,
+        name: body.name || (existing && existing.name) || body.username,
+        progress: finalProgress,
+        syncTimestamp: body.syncTimestamp || Date.now(),
+        lastSyncDate: new Date().toISOString(),
+        lastDevice: body.device || 'unknown'
+      };
+
+      safeWriteJSON(fp, record, 'sync-' + body.username.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase());
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ success: true, username: body.username, lastSyncDate: body.lastSyncDate }));
+      res.end(JSON.stringify({ success: true, username: body.username, merged: didMerge, lastSyncDate: record.lastSyncDate, progress: finalProgress }));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ error: e.message }));

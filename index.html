@@ -130,11 +130,59 @@ function defaultDB(){
   };
 }
 
+// Any storage key this app has ever used. Checked oldest-last so a future
+// key rename can never orphan a student's local data on upgrade.
+const LEGACY_DB_KEYS=['learning_portal_db','riyansh_portal_db','learning_portal_db_v1'];
+
 function loadDB(){
-  try{let s=localStorage.getItem(DB_KEY);if(s)return JSON.parse(s);}catch(e){}
+  // 1. Current key
+  try{
+    var s=localStorage.getItem(DB_KEY);
+    if(s){
+      var parsed=JSON.parse(s);
+      if(parsed&&parsed.kids)return parsed;
+    }
+  }catch(e){
+    console.warn('Primary save was unreadable, trying recovery:',e.message);
+    // Keep the damaged copy so nothing is silently destroyed
+    try{
+      var bad=localStorage.getItem(DB_KEY);
+      if(bad)localStorage.setItem(DB_KEY+'_corrupt_'+Date.now(),bad);
+    }catch(e2){}
+  }
+
+  // 2. Any legacy key from an earlier version of the app
+  for(var i=0;i<LEGACY_DB_KEYS.length;i++){
+    var k=LEGACY_DB_KEYS[i];
+    if(k===DB_KEY)continue;
+    try{
+      var old=localStorage.getItem(k);
+      if(old){
+        var od=JSON.parse(old);
+        if(od&&od.kids){
+          console.log('Recovered saved data from previous version key:',k);
+          try{localStorage.setItem(DB_KEY,old);}catch(e3){}
+          return od;
+        }
+      }
+    }catch(e4){}
+  }
+
   return null;
 }
-function saveDB(db){try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch(e){}}
+
+function saveDB(db){
+  try{
+    localStorage.setItem(DB_KEY,JSON.stringify(db));
+  }catch(e){
+    // Storage full or blocked — warn rather than fail silently, because the
+    // cloud copy is now the only safe record.
+    console.warn('Could not save locally:',e.message);
+    try{
+      if(typeof setSyncStatus==='function')setSyncStatus('error','local save failed');
+    }catch(e2){}
+  }
+}
 
 // Migrate old single-user data if exists
 function migrateOldData(){
@@ -277,6 +325,9 @@ function doLogin(){
         showKidApp(); // re-render with merged data
         showSyncNotification('Progress synced from cloud');
       }
+      // Push our state up too. On a brand-new device this establishes the
+      // baseline; if we had offline work it gets merged in server-side.
+      uploadFullProgress();
     });
     return;
   }
@@ -573,7 +624,7 @@ function showKidApp(){
     </div>
     <h1 id="hT">${kid.name}'s Learning Portal</h1>
     <div class="sub" id="hS">Choose a subject to start learning</div>
-    <div class="sts"><span class="chip" id="s1">Streak: ${S.streak||0}</span><span class="chip" id="s2">Done: ${S.total||0}</span><span class="chip" id="s3">Today: ${S.lastDate||'-'}</span></div>
+    <div class="sts"><span class="chip" id="s1">Streak: ${S.streak||0}</span><span class="chip" id="s2">Done: ${S.total||0}</span><span class="chip" id="s3">Today: ${S.lastDate||'-'}</span><span class="chip" id="syncBadge" title="Cloud sync status" onclick="manualSync()" style="cursor:pointer">Cloud: checking...</span></div>
   </div>
   <div class="nav">
     <button class="nb on" onclick="go('home')">Home</button>
@@ -602,6 +653,40 @@ function updateHeader(){
   if(el1)el1.textContent='Streak: '+(S.streak||0);
   if(el2)el2.textContent='Done: '+(S.total||0);
   if(el3)el3.textContent='Today: '+(S.lastDate||'-');
+  updateSyncBadge();
+}
+
+// Shows the student/parent whether work has reached the cloud.
+// Tapping it forces an immediate sync.
+function updateSyncBadge(detail){
+  var el=document.getElementById('syncBadge');
+  if(!el)return;
+  if(typeof SYNC==='undefined'||!SYNC)return;
+  var txt='',bg='',fg='';
+  switch(SYNC.status){
+    case 'syncing':
+      txt='Cloud: saving...'; bg='#fef3c7'; fg='#92400e'; break;
+    case 'saved':
+      var mins=SYNC.lastSaved?Math.floor((Date.now()-SYNC.lastSaved)/60000):0;
+      txt='Cloud: saved'+(mins>0?' '+mins+'m ago':''); bg='#d1fae5'; fg='#065f46'; break;
+    case 'offline':
+      txt='Cloud: offline (will save later)'; bg='#fee2e2'; fg='#991b1b'; break;
+    case 'error':
+      txt='Cloud: retry needed - tap'; bg='#fee2e2'; fg='#991b1b'; break;
+    default:
+      txt='Cloud: ready'; bg='#e0e7ff'; fg='#3730a3';
+  }
+  el.textContent=txt;
+  el.style.background=bg;
+  el.style.color=fg;
+}
+
+// Manual sync — push local work up, then pull anything from other devices
+function manualSync(){
+  if(!currentUser||currentUser.role!=='kid')return;
+  setSyncStatus('syncing');
+  uploadFullProgress();
+  setTimeout(function(){refreshFromCloud();},1500);
 }
 
 // === QUESTION BANKS ===
@@ -4227,23 +4312,183 @@ function syncPerformanceToServer(){
 }
 
 // === CROSS-DEVICE SYNC ===
-function uploadFullProgress(){
+// Sync state machine. SYNC.status is one of:
+// 'idle' | 'syncing' | 'saved' | 'offline' | 'error'
+var SYNC={status:'idle',lastSaved:null,pending:false,inFlight:false,retries:0};
+
+function setSyncStatus(status,detail){
+  SYNC.status=status;
+  if(status==='saved')SYNC.lastSaved=Date.now();
+  updateSyncBadge(detail);
+}
+
+// Identifies which device made the change (helps debugging sync issues)
+function getDeviceLabel(){
+  try{
+    var ua=navigator.userAgent;
+    if(/iPad/i.test(ua))return 'iPad';
+    if(/iPhone/i.test(ua))return 'iPhone';
+    if(/Android/i.test(ua))return 'Android';
+    if(/Mac/i.test(ua))return 'Mac';
+    if(/Windows/i.test(ua))return 'Windows';
+    return 'Device';
+  }catch(e){return 'Device';}
+}
+
+function uploadFullProgress(opts){
+  opts=opts||{};
   if(!isHosted()||!currentUser||currentUser.role!=='kid') return;
+
+  // Coalesce rapid successive calls into one request
+  if(SYNC.inFlight){SYNC.pending=true;return;}
+
+  if(typeof navigator!=='undefined'&&navigator.onLine===false){
+    SYNC.pending=true;
+    setSyncStatus('offline');
+    return;
+  }
+
   var kid=currentUser.kid;
   var payload={
     username:kid.username,
     name:kid.name,
     progress:JSON.parse(JSON.stringify(S)),
-    syncTimestamp:Date.now()
+    syncTimestamp:Date.now(),
+    device:getDeviceLabel()
   };
+
+  SYNC.inFlight=true;
+  setSyncStatus('syncing');
+
   fetch('/api/sync',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify(payload)
   }).then(function(r){
-    if(r.ok) console.log('Full progress uploaded for cross-device sync');
+    if(!r.ok) throw new Error('Server returned '+r.status);
+    return r.json();
+  }).then(function(result){
+    SYNC.inFlight=false;
+    SYNC.retries=0;
+
+    // The server merges our upload with anything another device sent.
+    // Adopt the merged result so this device converges immediately.
+    if(result&&result.progress&&result.merged){
+      adoptServerProgress(result.progress);
+    }
+
+    setSyncStatus('saved');
+    console.log('Progress synced to cloud'+(result&&result.merged?' (merged with other device)':''));
+
+    // If changes arrived while we were uploading, sync again
+    if(SYNC.pending){SYNC.pending=false;setTimeout(function(){uploadFullProgress();},500);}
   }).catch(function(e){
-    console.log('Full sync upload failed (non-critical):',e.message);
+    SYNC.inFlight=false;
+    console.log('Sync upload failed:',e.message);
+
+    // Retry with backoff — up to 3 attempts
+    if(SYNC.retries<3){
+      SYNC.retries++;
+      setSyncStatus('syncing','retrying');
+      setTimeout(function(){uploadFullProgress();},2000*SYNC.retries);
+    } else {
+      SYNC.retries=0;
+      SYNC.pending=true;
+      setSyncStatus('error',e.message);
+    }
+  });
+}
+
+// Replace local progress with the server's merged version, keeping the
+// live object reference intact so open screens keep working.
+function adoptServerProgress(serverProgress){
+  if(!serverProgress||!currentUser||!currentUser.kid) return;
+  try{
+    Object.keys(serverProgress).forEach(function(k){
+      S[k]=serverProgress[k];
+    });
+    currentUser.kid.progress=S;
+    saveDB(DB);
+  }catch(e){
+    console.log('Could not adopt server progress:',e.message);
+  }
+}
+
+// Pull the latest from the server and merge into this device
+function refreshFromCloud(cb){
+  if(!isHosted()||!currentUser||currentUser.role!=='kid'){if(cb)cb(false);return;}
+  downloadAndMergeProgress(currentUser.kid,function(merged){
+    if(merged){
+      S=currentUser.kid.progress;
+      console.log('Pulled newer progress from cloud');
+      // Re-render the current screen so the student sees updated numbers
+      // Only re-render passive screens — never interrupt an active quiz
+      try{
+        var quizActive=(typeof CQ!=='undefined'&&CQ&&CQ.active);
+        if(!quizActive&&typeof go==='function'&&typeof curScreen!=='undefined'&&curScreen){
+          go(curScreen);
+        } else if(typeof updateHeader==='function'){
+          updateHeader();
+        }
+      }catch(e){}
+    }
+    if(cb)cb(merged);
+  });
+}
+
+// === AUTOMATIC BACKGROUND SYNC ===
+// Without these hooks, work done between quizzes (writing, settings changes)
+// would only reach the cloud on the next quiz completion.
+function initAutoSync(){
+  if(!isHosted()) return;
+
+  // 1. Periodic sync every 2 minutes while the student is working
+  setInterval(function(){
+    if(currentUser&&currentUser.role==='kid'&&SYNC.status!=='syncing'){
+      uploadFullProgress();
+    }
+  },120000);
+
+  // 2. Sync when the tab is hidden or the app is backgrounded (mobile home button)
+  document.addEventListener('visibilitychange',function(){
+    if(document.hidden){
+      if(currentUser&&currentUser.role==='kid') uploadFullProgress();
+    } else {
+      // Coming back to the app — pull anything done on another device
+      if(currentUser&&currentUser.role==='kid') refreshFromCloud();
+    }
+  });
+
+  // 3. Last-chance save when closing the tab. sendBeacon survives page unload
+  // where a normal fetch would be cancelled.
+  window.addEventListener('beforeunload',function(){
+    if(!currentUser||currentUser.role!=='kid') return;
+    try{
+      var payload=JSON.stringify({
+        username:currentUser.kid.username,
+        name:currentUser.kid.name,
+        progress:S,
+        syncTimestamp:Date.now(),
+        device:getDeviceLabel()
+      });
+      if(navigator.sendBeacon){
+        navigator.sendBeacon('/api/sync',new Blob([payload],{type:'application/json'}));
+      }
+    }catch(e){}
+  });
+
+  // 4. Flush queued work as soon as the connection returns
+  window.addEventListener('online',function(){
+    setSyncStatus('idle');
+    if(currentUser&&currentUser.role==='kid'&&SYNC.pending){
+      SYNC.pending=false;
+      SYNC.retries=0;
+      uploadFullProgress();
+    }
+  });
+
+  window.addEventListener('offline',function(){
+    setSyncStatus('offline');
   });
 }
 
@@ -4275,27 +4520,46 @@ function downloadAndMergeProgress(kid,callback){
             merged=true;
             return;
           }
-          // Merge: take higher level, more ok/no, longer history
+          // Union merge — never discard work from either side
           var localTotal=(ld.ok||0)+(ld.no||0);
           var remoteTotal=(rd.ok||0)+(rd.no||0);
           if(remoteTotal>localTotal){
-            // Server has more data — use server values but keep local seen list
             ld.ok=rd.ok||0;
             ld.no=rd.no||0;
-            ld.lv=Math.max(ld.lv||1,rd.lv||1);
-            // Merge history arrays (deduplicate by date+score)
-            if(rd.h&&rd.h.length>(ld.h||[]).length){
-              ld.h=rd.h;
-            }
-            // Merge seen question lists
-            if(rd.sn){
-              ld.sn=ld.sn||[];
-              rd.sn.forEach(function(id){if(ld.sn.indexOf(id)===-1)ld.sn.push(id);});
-            }
             merged=true;
-          } else if(remoteTotal===localTotal&&(rd.lv||1)>(ld.lv||1)){
-            ld.lv=rd.lv;
-            merged=true;
+          }
+          // Always keep the highest level reached on any device
+          var newLv=Math.max(ld.lv||1,rd.lv||1);
+          if(newLv!==(ld.lv||1)){ld.lv=newLv;merged=true;}
+
+          // Quiz history: union deduplicated by date+score+total
+          if(rd.h&&rd.h.length){
+            ld.h=ld.h||[];
+            var seenH={};
+            ld.h.forEach(function(h){seenH[h.date+'|'+h.score+'|'+h.total]=1;});
+            rd.h.forEach(function(h){
+              var k=h.date+'|'+h.score+'|'+h.total;
+              if(!seenH[k]){ld.h.push(h);seenH[k]=1;merged=true;}
+            });
+          }
+
+          // Seen question IDs: union so questions aren't repeated on a new device
+          if(rd.sn&&rd.sn.length){
+            ld.sn=ld.sn||[];
+            rd.sn.forEach(function(id){if(ld.sn.indexOf(id)===-1){ld.sn.push(id);merged=true;}});
+          }
+
+          // Mistake history: union — this drives adaptive question generation,
+          // so it must follow the student to every device they use
+          if(rd.mk&&rd.mk.length){
+            ld.mk=ld.mk||[];
+            var seenM={};
+            ld.mk.forEach(function(m){seenM[(m.q||'')+'|'+(m.date||'')]=1;});
+            rd.mk.forEach(function(m){
+              var k=(m.q||'')+'|'+(m.date||'');
+              if(!seenM[k]){ld.mk.push(m);seenM[k]=1;merged=true;}
+            });
+            if(ld.mk.length>20)ld.mk=ld.mk.slice(-20);
           }
         });
       });
@@ -4333,9 +4597,14 @@ function downloadAndMergeProgress(kid,callback){
         local.total=remote.total;
         merged=true;
       }
-      if(remote.done&&remote.done.length>(local.done||[]).length){
-        local.done=remote.done;
-        merged=true;
+      if(remote.done&&remote.done.length){
+        local.done=local.done||[];
+        var seenDone={};
+        local.done.forEach(function(d){seenDone[(d.date||'')+'|'+(d.subject||'')+'|'+(d.topic||'')+'|'+(d.score||'')]=1;});
+        remote.done.forEach(function(d){
+          var k=(d.date||'')+'|'+(d.subject||'')+'|'+(d.topic||'')+'|'+(d.score||'');
+          if(!seenDone[k]){local.done.push(d);seenDone[k]=1;merged=true;}
+        });
       }
       // Merge streak and active days
       if(remote.streak&&(remote.streak>(local.streak||0))){local.streak=remote.streak;merged=true;}
@@ -4682,7 +4951,97 @@ function renderAdaptiveParentDash(kidProgress,kidName){
   html+='<div class="ds">Download a summary of performance data as JSON (useful for tracking or sharing with tutors).</div>';
   html+='<button class="bt bp" onclick="exportPerformanceJSON()" style="margin-top:8px">Export Performance JSON</button></div>';
 
+  // === DATA SAFETY ===
+  html+='<div class="cd"><h3>🛡️ Data Safety</h3>';
+  html+='<div class="ds">Check that progress is being stored safely and will survive app updates.</div>';
+  html+='<div id="dataSafetyResult" style="margin:12px 0"></div>';
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
+  html+='<button class="bt bp" onclick="checkDataSafety()">Check Storage Health</button>';
+  html+='<button class="bt" style="background:var(--g);color:#fff" onclick="downloadFullBackup()">Download Full Backup</button>';
+  html+='<button class="bt" style="background:var(--w);color:#fff" onclick="document.getElementById(\'restoreFile\').click()">Restore From Backup</button>';
+  html+='</div>';
+  html+='<input type="file" id="restoreFile" accept=".json" style="display:none" onchange="restoreFromBackup(this)">';
+  html+='<div style="margin-top:10px;font-size:12px;color:var(--t2)">Tip: download a backup before any major update. Restoring only adds data back — it never deletes newer work.</div>';
+  html+='</div>';
+
   return html;
+}
+
+// Reads /api/health and explains in plain language whether data is safe
+function checkDataSafety(){
+  var el=document.getElementById('dataSafetyResult');
+  if(!el)return;
+  el.innerHTML='<div style="padding:10px;background:var(--wl);border-radius:var(--r);color:#92400e">Checking storage...</div>';
+  fetch('/api/health').then(function(r){return r.json();}).then(function(d){
+    var v=d.persistentVolume||{};
+    var safe=v.active;
+    var box=safe
+      ? '<div style="padding:12px;background:var(--gl);border-radius:var(--r);color:#065f46"><strong>Storage is safe.</strong><br>Progress is on a persistent volume and will survive app updates and redeploys.</div>'
+      : '<div style="padding:12px;background:#fee2e2;border-radius:var(--r);color:#991b1b"><strong>Warning: progress is at risk.</strong><br>No persistent volume detected. Data is stored in the app folder and will be erased on the next update.<br><br><strong>How to fix:</strong> in the Railway dashboard, add a Volume to this service, then set the variable <code>RAILWAY_VOLUME_MOUNT_PATH</code> to the volume mount path (for example <code>/data</code>). Redeploy after setting it.</div>';
+
+    var s=d.stored||{};
+    var rows='';
+    function row(label,info){
+      if(!info)return;
+      rows+='<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--b);font-size:13px"><span>'+label+'</span><span>'+(info.files||0)+' file(s)'+(info.lastModified?' &middot; updated '+new Date(info.lastModified).toLocaleString():'')+'</span></div>';
+    }
+    row('Student progress',s.progressSync);
+    row('Performance summaries',s.performance);
+    row('Quiz results',s.quizResults);
+    row('Writing submissions',s.writing);
+    row('Homework submissions',s.homework);
+    row('Backups kept',d.backups);
+
+    el.innerHTML=box+'<div style="margin-top:12px">'+rows+'</div>';
+  }).catch(function(e){
+    el.innerHTML='<div style="padding:12px;background:#fee2e2;border-radius:var(--r);color:#991b1b">Could not reach the server: '+e.message+'</div>';
+  });
+}
+
+// Downloads every piece of stored data as one file
+function downloadFullBackup(){
+  var el=document.getElementById('dataSafetyResult');
+  if(el)el.innerHTML='<div style="padding:10px;background:var(--wl);border-radius:var(--r);color:#92400e">Preparing backup...</div>';
+  fetch('/api/backup').then(function(r){
+    if(!r.ok)throw new Error('Server returned '+r.status);
+    return r.blob();
+  }).then(function(blob){
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');
+    a.href=url;
+    a.download='portal-backup-'+new Date().toISOString().slice(0,10)+'.json';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    if(el)el.innerHTML='<div style="padding:12px;background:var(--gl);border-radius:var(--r);color:#065f46"><strong>Backup downloaded.</strong> Keep this file somewhere safe.</div>';
+  }).catch(function(e){
+    if(el)el.innerHTML='<div style="padding:12px;background:#fee2e2;border-radius:var(--r);color:#991b1b">Backup failed: '+e.message+'</div>';
+  });
+}
+
+// Restores a previously downloaded backup (merge only — never destructive)
+function restoreFromBackup(input){
+  var f=input.files&&input.files[0];
+  if(!f)return;
+  var el=document.getElementById('dataSafetyResult');
+  if(!confirm('Restore from "'+f.name+'"?\n\nThis merges the backup back in. Existing newer work is kept — nothing is deleted.')){
+    input.value='';return;
+  }
+  if(el)el.innerHTML='<div style="padding:10px;background:var(--wl);border-radius:var(--r);color:#92400e">Restoring...</div>';
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    fetch('/api/restore',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:ev.target.result
+    }).then(function(r){return r.json();}).then(function(d){
+      if(d.error)throw new Error(d.error);
+      if(el)el.innerHTML='<div style="padding:12px;background:var(--gl);border-radius:var(--r);color:#065f46"><strong>Restore complete.</strong> Recovered data for: '+(d.restored||[]).join(', ')+'.<br>Ask the student to sign in again to pull the restored progress.</div>';
+    }).catch(function(e){
+      if(el)el.innerHTML='<div style="padding:12px;background:#fee2e2;border-radius:var(--r);color:#991b1b">Restore failed: '+e.message+'</div>';
+    });
+    input.value='';
+  };
+  reader.readAsText(f);
 }
 
 function exportPerformanceJSON(){
@@ -4714,6 +5073,15 @@ function exportPerformanceJSON(){
 
 // === INITIALIZE APP ===
 showLogin();
+
+// Start the background cloud sync engine (periodic save, save on close,
+// pull on resume, retry when the connection returns)
+try{ initAutoSync(); }catch(e){ console.log('Auto-sync init failed:',e.message); }
+
+// Keep the "saved X minutes ago" badge current
+setInterval(function(){
+  try{ if(typeof SYNC!=='undefined'&&SYNC.status==='saved') updateSyncBadge(); }catch(e){}
+},60000);
 
 // === SYNC NOTIFICATION ===
 function showSyncNotification(msg){

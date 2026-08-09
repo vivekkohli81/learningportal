@@ -1,0 +1,33 @@
+# === STUDENT DATA — NEVER COMMIT ===
+# These folders hold live student progress on the Railway volume.
+# If they were committed, a deploy could overwrite real data with stale
+# snapshots from the repo. Keep them out of git entirely.
+
+data/
+quiz-results/
+writing-submissions/
+homework/
+backups/
+
+# Sync folder holds live per-student progress.
+# accounts.json is the ONLY exception — it is the seed template used to
+# bootstrap a brand-new deployment, and seedFile() will not overwrite an
+# existing file on the volume.
+sync/*
+!sync/accounts.json
+
+# Node
+node_modules/
+npm-debug.log*
+.env
+.env.local
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
