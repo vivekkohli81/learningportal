@@ -409,6 +409,11 @@ function proxyRequest(options, body, res) {
 }
 
 const server = http.createServer(async (req, res) => {
+  // Path without any query string. Routes below that match an exact path use
+  // this, so adding "?t=1" (e.g. to bypass browser caching) still works
+  // instead of falling through to the static file handler.
+  const pathOnly = (req.url || '').split('?')[0];
+
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
@@ -422,7 +427,7 @@ const server = http.createServer(async (req, res) => {
 
   // === HEALTH / DATA SAFETY CHECK ===
   // Open this in a browser to confirm data will survive the next deploy.
-  if (req.url === '/api/health' && req.method === 'GET') {
+  if (pathOnly === '/api/health' && req.method === 'GET') {
     const info = {
       status: 'ok',
       serverTime: new Date().toISOString(),
@@ -465,14 +470,20 @@ const server = http.createServer(async (req, res) => {
     // Warn if the seed template is the only thing present
     info.accountsFileExists = fs.existsSync(ACCOUNTS_FILE);
 
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    // Never cache — this must always reflect the live server state
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Pragma': 'no-cache'
+    });
     res.end(JSON.stringify(info, null, 2));
     return;
   }
 
   // === FULL BACKUP EXPORT ===
   // Downloads every piece of student data as a single JSON file.
-  if (req.url === '/api/backup' && req.method === 'GET') {
+  if (pathOnly === '/api/backup' && req.method === 'GET') {
     try {
       const bundle = {
         exportedAt: new Date().toISOString(),
@@ -514,7 +525,7 @@ const server = http.createServer(async (req, res) => {
   // === RESTORE FROM BACKUP ===
   // Merges an exported bundle back in. Uses the same union merge as normal
   // sync, so restoring can only ever add data back — never remove newer work.
-  if (req.url === '/api/restore' && req.method === 'POST') {
+  if (pathOnly === '/api/restore' && req.method === 'POST') {
     try {
       const bundle = JSON.parse(await readBody(req));
       if (!bundle || bundle.version !== 1) {
