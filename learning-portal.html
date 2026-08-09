@@ -463,15 +463,19 @@ function sv(){saveDB(DB);}
 // === AI MODEL CONFIGURATION ===
 const AI_MODELS={
   claude:[
-    {id:'claude-sonnet-4-6',name:'Claude Sonnet 4.6',desc:'Fast and capable (recommended)',cost:'Paid'},
+    {id:'claude-opus-4-6',name:'Claude Opus 4.6',desc:'Most capable, premium quality',cost:'Paid'},
+    {id:'claude-sonnet-4-6',name:'Claude Sonnet 4.6',desc:'Fast and capable',cost:'Paid'},
     {id:'claude-haiku-4-5-20251001',name:'Claude Haiku 4.5',desc:'Fastest, most affordable',cost:'Paid'},
-    {id:'claude-opus-4-6',name:'Claude Opus 4.6',desc:'Most capable, premium quality',cost:'Paid'}
+    {id:'claude-sonnet-4-5-20250514',name:'Claude Sonnet 4.5',desc:'Previous gen, strong reasoning',cost:'Paid'},
+    {id:'claude-3-5-sonnet-20241022',name:'Claude 3.5 Sonnet',desc:'Previous gen, reliable',cost:'Paid'},
+    {id:'claude-3-5-haiku-20241022',name:'Claude 3.5 Haiku',desc:'Previous gen, very fast',cost:'Paid'}
   ],
   gemini:[
-    {id:'gemini-2.0-flash',name:'Gemini 2.0 Flash',desc:'Fast and free',cost:'Free'},
-    {id:'gemini-2.5-flash-preview-05-20',name:'Gemini 2.5 Flash',desc:'Latest free model',cost:'Free'},
-    {id:'gemini-1.5-flash',name:'Gemini 1.5 Flash',desc:'Lightweight and fast',cost:'Free'},
-    {id:'gemini-1.5-pro',name:'Gemini 1.5 Pro',desc:'High quality, free tier available',cost:'Free tier'}
+    {id:'gemini-2.5-flash-preview-05-20',name:'Gemini 2.5 Flash',desc:'Latest and smartest free model',cost:'Free'},
+    {id:'gemini-2.5-pro-preview-06-05',name:'Gemini 2.5 Pro',desc:'Most capable Gemini model',cost:'Free tier'},
+    {id:'gemini-2.0-flash',name:'Gemini 2.0 Flash',desc:'Fast and reliable',cost:'Free'},
+    {id:'gemini-1.5-pro',name:'Gemini 1.5 Pro',desc:'Strong reasoning, free tier',cost:'Free tier'},
+    {id:'gemini-1.5-flash',name:'Gemini 1.5 Flash',desc:'Lightweight and fast',cost:'Free'}
   ]
 };
 
