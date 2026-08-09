@@ -2001,7 +2001,7 @@ function selectOption(idx){
   });
   let correct=idx===q.cor;
   if(correct)CQ.score++;
-  CQ.answers.push({q:q.id,chose:idx,correct:correct});
+  CQ.answers.push({q:q.id,chose:idx,correct:correct,txt:q.txt,chosenText:(q.opts&&q.opts[idx])||'',correctText:(q.opts&&q.opts[q.cor])||''});
   // Mark as seen
   let s=S[CQ.subject][CQ.topic];
   if(!s.sn.includes(q.id))s.sn.push(q.id);
@@ -2021,6 +2021,14 @@ function showQuizResults(){
   s.ok+=CQ.score;
   s.no+=(CQ.questions.length-CQ.score);
   s.h.push({date:new Date().toDateString(),score:CQ.score,total:CQ.questions.length,pct:pct});
+  // Record specific mistakes so AI can target them in future questions
+  if(!s.mk)s.mk=[];
+  CQ.answers.forEach(function(a){
+    if(!a.correct&&a.txt){
+      s.mk.push({date:new Date().toDateString(),q:String(a.txt).substring(0,180),chose:String(a.chosenText||'').substring(0,80),right:String(a.correctText||'').substring(0,80),lv:s.lv});
+    }
+  });
+  if(s.mk.length>20)s.mk=s.mk.slice(-20);
   // Adaptive difficulty
   let lvMsg='';
   if(pct>=80&&s.lv<5){s.lv++;lvMsg='Great work! You have moved up to Level '+s.lv+'.';}
@@ -3053,14 +3061,92 @@ async function generateFreeWritingAssignment(){
 function startWriting(subj,topic){openWritingCentre();}
 
 // === AI QUESTION GENERATION ===
+// === ADAPTIVE LEARNING: build a performance profile the AI can use ===
+// Turns the student's stored history into plain-English coaching context
+// so generated questions target real weak spots instead of being generic.
+function buildLearnerContext(subj,topic){
+  var s=(S[subj]&&S[subj][topic])||null;
+  if(!s) return '';
+  var lines=[];
+
+  // 1. Accuracy on this specific topic
+  var ok=s.ok||0, no=s.no||0, total=ok+no;
+  if(total>0){
+    var acc=Math.round(ok/total*100);
+    lines.push('- Accuracy on this topic: '+acc+'% ('+ok+' correct, '+no+' incorrect, out of '+total+' questions).');
+    if(acc<50) lines.push('- This student is STRUGGLING with this topic. Build confidence: keep questions at the easier end of the level, use small numbers, and make each step obvious.');
+    else if(acc>=85) lines.push('- This student is STRONG on this topic. Stretch them: use multi-step reasoning and less obvious distractors.');
+  } else {
+    lines.push('- This is the first time this student has practised this topic. Start with clear, foundational questions.');
+  }
+
+  // 2. Recent quiz score trend for this topic
+  if(s.h&&s.h.length>0){
+    var recent=s.h.slice(-5);
+    var scores=recent.map(function(h){return h.pct+'%';}).join(', ');
+    lines.push('- Last '+recent.length+' quiz score(s) on this topic (oldest to newest): '+scores+'.');
+    if(recent.length>=3){
+      var first=recent[0].pct, last=recent[recent.length-1].pct;
+      if(last-first>=15) lines.push('- Their scores are IMPROVING. It is appropriate to raise the challenge slightly.');
+      else if(first-last>=15) lines.push('- Their scores are DECLINING. Re-teach the fundamentals within this topic before adding complexity.');
+    }
+  }
+
+  // 3. The actual mistakes they made — most valuable signal
+  if(s.mk&&s.mk.length>0){
+    var recentMistakes=s.mk.slice(-6);
+    lines.push('- SPECIFIC QUESTIONS THIS STUDENT RECENTLY GOT WRONG (target these exact weaknesses):');
+    recentMistakes.forEach(function(m,i){
+      var line='   '+(i+1)+'. Question: "'+m.q+'"';
+      if(m.chose) line+=' | They answered: "'+m.chose+'"';
+      if(m.right) line+=' | Correct answer was: "'+m.right+'"';
+      lines.push(line);
+    });
+    lines.push('- Design at least 2 of the 3 new questions to practise the same underlying skills these mistakes reveal, but with different numbers, wording and context. Do NOT repeat the questions above word for word.');
+  }
+
+  // 4. Cross-subject context — overall picture
+  var analysis=(typeof analyzePerformance==='function')?analyzePerformance(S):null;
+  if(analysis){
+    if(analysis.overallAccuracy) lines.push('- Overall accuracy across all subjects: '+analysis.overallAccuracy+'%.');
+    if(analysis.weakAreas&&analysis.weakAreas.length>0){
+      var weak=analysis.weakAreas.filter(function(w){return w.subject===subj&&w.topic===topic;});
+      if(weak.length>0) lines.push('- This topic is flagged as one of the student\'s weakest areas overall. Prioritise clarity and confidence-building.');
+    }
+  }
+
+  // 5. Questions already seen — avoid repeats
+  if(s.sn&&s.sn.length>0){
+    lines.push('- The student has already attempted '+s.sn.length+' question(s) in this topic. Generate genuinely NEW questions.');
+  }
+
+  if(lines.length===0) return '';
+  return '\n\nSTUDENT PERFORMANCE PROFILE (use this to personalise the questions):\n'+lines.join('\n');
+}
+
 async function generateAI(subj,topic){
   if(!hasAIKey()){alert('Please set your API key in Settings first. Go to the Settings tab at the bottom and add a Claude or Gemini API key.');go('settings');return;}
   let s=S[subj][topic];
   let lvNames={1:'beginner (Year 5-6)',2:'intermediate (Year 7-8)',3:'advanced (Year 8-9)',4:'expert (Year 9-10)',5:'master (Year 10-11)'};
   let topicNames={punctuation:'punctuation rules',reading:'reading comprehension',writing:'creative writing',geometry:'geometry',problemSolving:'problem solving and word problems',number:'number skills and arithmetic',biology:'biology (cells, body systems, ecosystems, genetics)',chemistry:'chemistry (materials, reactions, atoms, periodic table)',physics:'physics (forces, energy, electricity, waves)',earthSpace:'earth and space science (solar system, rocks, weather, climate)',wholeNumbers:'whole numbers (Haese MYP7 Ch1: place value, expanded form, rounding, significant figures, exponent notation)',numberProperties:'number properties (Haese MYP7 Ch2: square numbers, cubic numbers, divisibility, factors, primes, HCF, LCM)',linesAngles:'lines and angles (Haese MYP7 Ch3: angle types, complementary, supplementary, parallel lines, transversals, alternate and corresponding angles)',numberStrategies:'number strategies and order of operations (Haese MYP7 Ch4: BEDMAS, mental strategies, estimation, problem solving)',posNegNumbers:'positive and negative numbers (Haese MYP7 Ch5: integers on number line, adding/subtracting negatives, multiplying/dividing negatives)',fractions:'fractions (Haese MYP7 Ch6: equivalent fractions, mixed numbers, operations with fractions, reciprocals)',decimals:'decimals (Haese MYP7 Ch7: decimal place value, rounding, operations, converting fractions to decimals)',algebra:'algebra (Haese MYP7 Ch8: expressions, substitution, collecting like terms, formulae, expanding brackets)',percentage:'percentages (Haese MYP7 Ch9: converting percentages, finding percentages, percentage increase/decrease, discount)',equations:'equations (Haese MYP7 Ch10: solving by inspection, inverse operations, flowcharts, word problems)',polygons:'polygons (Haese MYP7 Ch11: triangles, angle sum, exterior angles, isosceles triangles, quadrilaterals)',measurementArea:'measurement length and area (Haese MYP7 Ch12: perimeter, area of rectangles, triangles, parallelograms, trapeziums, circles)',solids:'solids (Haese MYP7 Ch13: 3D shapes, faces edges vertices, nets, views and projections)',volumeMass:'volume capacity and mass (Haese MYP7 Ch14: volume of prisms and cylinders, capacity, mass, unit conversions)',coordGeometry:'coordinate geometry (Haese MYP7 Ch15: plotting points, quadrants, midpoint, equation of a line)',ratioRates:'ratio and rates (Haese MYP7 Ch16: simplifying ratios, sharing in ratio, rates, unit cost, speed)',probability:'probability (Haese MYP7 Ch17: describing probability, sample space, theoretical and experimental probability)',statistics:'statistics (Haese MYP7 Ch18: data collection, categorical/numerical data, stem-and-leaf, mean, median, mode, range)',transformations:'transformations (Haese MYP7 Ch19: translations, reflections, rotations, enlargements, symmetry)',logic:'logical thinking and pattern recognition (competition style: sequences, deduction puzzles, lateral thinking)',combi:'combinatorics and counting (competition style: arrangements, permutations, combinations, probability, path counting)'};
-  let prompt=`Generate 3 multiple-choice questions for a ${lvNames[s.lv]} student about ${topicNames[topic]}. The student prefers clear, explicit instructions without figurative language.
-Return ONLY a JSON array. Each question: {"inst":"instruction","txt":"question text","opts":["A","B","C"],"cor":0,"exp":"explanation"}
-"cor" is the 0-based index of the correct answer. Keep language clear and direct.`;
+  let learnerCtx=buildLearnerContext(subj,topic);
+  let prompt=`You are an expert adaptive tutor creating personalised practice questions.
+
+TASK: Generate 3 multiple-choice questions for a ${lvNames[s.lv]} student about ${topicNames[topic]}.
+
+STUDENT NEEDS: This student prefers clear, explicit instructions without figurative language, idioms, or ambiguous wording. Use direct, literal language. Keep each question to one clear task.${learnerCtx}
+
+QUESTION DESIGN RULES:
+1. Target the specific weaknesses shown in the performance profile above where one is given.
+2. Make the wrong options (distractors) reflect realistic mistakes a student would actually make on this topic - not random wrong answers.
+3. Write the explanation so it teaches the method step by step, not just the answer. If the student previously made a related mistake, the explanation should address that misunderstanding directly.
+4. Vary the question format so the set does not feel repetitive.
+5. Keep all questions strictly at ${lvNames[s.lv]} difficulty.
+
+Return ONLY a JSON array with no extra text before or after. Each question must be:
+{"inst":"short instruction","txt":"question text","opts":["option A","option B","option C"],"cor":0,"exp":"step-by-step explanation","skill":"the specific sub-skill this tests"}
+
+"cor" is the 0-based index of the correct answer.`;
 
   let SC=document.getElementById('SC');
   SC.innerHTML=`<div class="cd" style="text-align:center"><h2>Generating new questions...</h2><div class="ds">Using ${DB.settings.provider==='gemini'?'Google Gemini':'Claude'} (${DB.settings.model})</div><div class="pb"><div class="pf" style="width:50%"></div></div></div>`;
@@ -4089,6 +4175,21 @@ function syncPerformanceToServer(){
   });
   recentQuizzes.sort(function(a,b){return new Date(b.date)-new Date(a.date);});
 
+  // Recent specific mistakes across all subjects (for adaptive email content)
+  var recentMistakes=[];
+  ['english','maths','science','ib7'].forEach(function(subj){
+    if(!S[subj]) return;
+    Object.keys(S[subj]).forEach(function(topic){
+      var d=S[subj][topic];
+      if(d&&d.mk){
+        d.mk.forEach(function(m){
+          recentMistakes.push({date:m.date,subject:subj,topic:topic,question:m.q,chose:m.chose,correct:m.right,level:m.lv});
+        });
+      }
+    });
+  });
+  recentMistakes.sort(function(a,b){return new Date(b.date)-new Date(a.date);});
+
   var payload={
     username:kid.username,
     name:kid.name,
@@ -4103,6 +4204,7 @@ function syncPerformanceToServer(){
     weakAreas:analysis.weakAreas.map(function(w){return {subject:w.subject,topic:w.topic,accuracy:w.accuracy,level:w.level};}),
     strongAreas:analysis.strongAreas.map(function(s){return {subject:s.subject,topic:s.topic,accuracy:s.accuracy,level:s.level};}),
     recentQuizzes:recentQuizzes.slice(0,10),
+    recentMistakes:recentMistakes.slice(0,15),
     trend:analysis.trend,
     last5Avg:analysis.last5Avg,
     writings:analysis.writings,
