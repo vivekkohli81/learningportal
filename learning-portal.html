@@ -3670,6 +3670,22 @@ function renderAdminSettings(el){
   el.innerHTML=html;
 }
 
+async function testAIConnection(){
+  var resultEl=document.getElementById('testResult');
+  if(!resultEl)return;
+  if(!hasAIKey()){
+    resultEl.innerHTML='<div style="padding:12px;background:var(--el);border-radius:var(--r);color:var(--e)"><strong>No API key found.</strong> Please enter and save your API key above first.</div>';
+    return;
+  }
+  resultEl.innerHTML='<div style="padding:12px;background:var(--wl);border-radius:var(--r);color:#92400e">Testing connection to '+(DB.settings.provider==='gemini'?'Google Gemini':'Claude (Anthropic)')+' using model <strong>'+DB.settings.model+'</strong>...</div>';
+  try{
+    var response=await callAI('Reply with exactly: "Connection successful! AI is working." Nothing else.',100);
+    resultEl.innerHTML='<div style="padding:12px;background:var(--gl);border-radius:var(--r);color:#065f46"><strong>✓ Success!</strong> AI responded: "'+response+'"<br><span style="font-size:12px">Provider: '+(DB.settings.provider==='gemini'?'Gemini':'Claude')+' | Model: '+DB.settings.model+'</span></div>';
+  }catch(e){
+    resultEl.innerHTML='<div style="padding:12px;background:var(--el);border-radius:var(--r);color:var(--e)"><strong>✕ Connection Failed</strong><br>'+e.message+'<br><span style="font-size:12px;margin-top:4px;display:block">Check that your API key is correct and has not expired. Provider: '+(DB.settings.provider==='gemini'?'Gemini':'Claude')+' | Model: '+DB.settings.model+'</span></div>';
+  }
+}
+
 function renderAdminAccount(el){
   var html='<div class="cd"><h3>Change Admin Password</h3>';
   html+='<div class="form-group"><label>New Password</label><input type="password" class="api" id="newAdminPass" placeholder="New password (min 4 chars)"></div>';
