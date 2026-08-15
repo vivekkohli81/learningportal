@@ -4582,7 +4582,38 @@ function renderKidProgress(){
     html+='</div>';
   }
 
+  // Competition Prep section (fetched from server)
+  html+='<div class="cd" id="compPrepSection"><h3>Competition Prep Assignments</h3><div class="ds">Loading from server...</div></div>';
+
   detail.innerHTML=html;
+
+  // Fetch comp prep results
+  if(isHosted()){
+    fetch('/api/comp-prep/list/'+k.username).then(function(r){return r.json();}).then(function(data){
+      var sec=document.getElementById('compPrepSection');
+      if(!sec)return;
+      var list=data.assignments||[];
+      if(list.length===0){
+        sec.innerHTML='<h3>Competition Prep Assignments</h3><div class="ds">No competition prep assignments yet.</div>';
+        return;
+      }
+      var rows='';
+      list.forEach(function(a){
+        var scoreHtml=a.score!==null?a.score+'/'+a.total:'—';
+        var pct=a.score!==null&&a.total?Math.round(a.score/a.total*100):null;
+        var col=pct===null?'var(--t2)':pct>=80?'var(--g)':pct>=50?'var(--w)':'var(--e)';
+        var statusBadge=a.status==='marked'?'<span class="badge b1">Marked</span>':a.status==='submitted'?'<span class="badge b2">Submitted</span>':'<span class="badge" style="background:var(--pl);color:var(--p)">Pending</span>';
+        rows+='<tr><td>'+a.date+'</td><td>'+a.title+'</td><td>'+statusBadge+'</td><td style="font-weight:700;color:'+col+'">'+scoreHtml+(pct!==null?' ('+pct+'%)':'')+'</td><td><a href="/comp-prep/'+a.id+'" target="_blank" style="color:var(--p);text-decoration:none;font-weight:500">View</a></td></tr>';
+      });
+      sec.innerHTML='<h3>Competition Prep Assignments ('+list.length+')</h3><div class="ds">Results from emailed competition prep quizzes.</div><table class="tb"><tr><th>Date</th><th>Title</th><th>Status</th><th>Score</th><th></th></tr>'+rows+'</table>';
+    }).catch(function(e){
+      var sec=document.getElementById('compPrepSection');
+      if(sec)sec.innerHTML='<h3>Competition Prep Assignments</h3><div class="ds" style="color:var(--e)">Could not load: '+e.message+'</div>';
+    });
+  } else {
+    var sec=document.getElementById('compPrepSection');
+    if(sec)sec.innerHTML='<h3>Competition Prep Assignments</h3><div class="ds">Competition prep data is only available when hosted online.</div>';
+  }
 }
 // === AI SETTINGS (Admin) ===
 function renderAdminSettings(el){
