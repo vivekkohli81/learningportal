@@ -4543,7 +4543,8 @@ function renderKidProgress(){
 
   // Check view mode
   if(window._progressView==='adaptive'){
-    detail.innerHTML=renderAdaptiveParentDash(p,k.name)+'<div style="text-align:center;margin-top:8px"><button class="bt" style="font-size:12px;padding:6px 16px;background:var(--p);color:white" onclick="window[\'_kidFetched_'+idx+'\']=false;renderKidProgress()">Refresh from Server</button></div>';
+    detail.innerHTML=renderAdaptiveParentDash(p,k.name)+'<div class="cd" id="compPrepSection"><h3>Competition Prep Assignments</h3><div class="ds">Loading from server...</div></div>'+'<div style="text-align:center;margin-top:8px"><button class="bt" style="font-size:12px;padding:6px 16px;background:var(--p);color:white" onclick="window[\'_kidFetched_'+idx+'\']=false;renderKidProgress()">Refresh from Server</button></div>';
+    fetchCompPrepResults(k.username);
     return;
   }
 
@@ -4586,10 +4587,12 @@ function renderKidProgress(){
   html+='<div class="cd" id="compPrepSection"><h3>Competition Prep Assignments</h3><div class="ds">Loading from server...</div></div>';
 
   detail.innerHTML=html;
+  fetchCompPrepResults(k.username);
+}
 
-  // Fetch comp prep results
+function fetchCompPrepResults(username){
   if(isHosted()){
-    fetch('/api/comp-prep/list/'+k.username).then(function(r){return r.json();}).then(function(data){
+    fetch('/api/comp-prep/list/'+username).then(function(r){return r.json();}).then(function(data){
       var sec=document.getElementById('compPrepSection');
       if(!sec)return;
       var list=data.assignments||[];
