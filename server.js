@@ -7,6 +7,8 @@ const PORT = process.env.PORT || 3000;
 
 const indexHtml = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 const writingSubmitHtml = fs.readFileSync(path.join(__dirname, 'writing-submit.html'), 'utf8');
+let compPrepHtml = '';
+try { compPrepHtml = fs.readFileSync(path.join(__dirname, 'comp-prep.html'), 'utf8'); } catch (e) { console.log('comp-prep.html not found yet'); }
 
 // === PERSISTENT DATA STORAGE ===
 // Use Railway volume if available, otherwise fall back to app directory
@@ -964,7 +966,13 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // === WRITING SUBMISSION API ===
+  // === COMPETITION PREP ASSIGNMENTS DATABASE ===
+const COMP_PREP_DIR = path.join(DATA_ROOT, 'comp-prep');
+if (!fs.existsSync(COMP_PREP_DIR)) fs.mkdirSync(COMP_PREP_DIR, { recursive: true });
+const COMP_PREP_FILES_DIR = path.join(COMP_PREP_DIR, 'uploads');
+if (!fs.existsSync(COMP_PREP_FILES_DIR)) fs.mkdirSync(COMP_PREP_FILES_DIR, { recursive: true });
+
+// === WRITING SUBMISSION API ===
 
   if (req.url === '/api/writing-submit' && req.method === 'POST') {
     try {
@@ -1045,6 +1053,212 @@ const server = http.createServer(async (req, res) => {
       } else {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ username: username, submissions: [] }));
+      }
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // === COMPETITION PREP ASSIGNMENT API ===
+
+  // POST /api/comp-prep — create a new competition prep assignment (called by scheduled task)
+  if (pathOnly === '/api/comp-prep' && req.method === 'POST') {
+    try {
+      const body = JSON.parse(await readBody(req));
+      if (!body.username || !body.questions || !Array.isArray(body.questions)) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'username and questions[] are required' }));
+        return;
+      }
+      const id = 'cp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      const assignment = {
+        id: id,
+        username: body.username,
+        date: body.date || new Date().toISOString().slice(0, 10),
+        title: body.title || 'Maths Competition Prep',
+        questions: body.questions, // each: {n, text, topic, difficulty, answer, solution}
+        status: 'pending',         // pending → submitted → marked
+        answers: {},               // student's typed answers keyed by question number
+        uploadedFile: null,        // filename if student uploaded work
+        result: null,              // marking result after submission
+        createdAt: new Date().toISOString()
+      };
+      const fp = path.join(COMP_PREP_DIR, id + '.json');
+      fs.writeFileSync(fp, JSON.stringify(assignment, null, 2), 'utf8');
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ success: true, id: id, url: '/comp-prep/' + id }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // GET /api/comp-prep/:id — fetch assignment (hides solutions if not yet submitted)
+  if (req.url.match(/^\/api\/comp-prep\/cp_[^/]+$/) && req.method === 'GET') {
+    const id = decodeURIComponent(pathOnly.split('/api/comp-prep/')[1]);
+    const fp = path.join(COMP_PREP_DIR, id + '.json');
+    try {
+      if (!fs.existsSync(fp)) {
+        res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'Assignment not found' }));
+        return;
+      }
+      const asg = JSON.parse(fs.readFileSync(fp, 'utf8'));
+      // Strip solutions and answers if student hasn't submitted yet
+      if (asg.status === 'pending') {
+        asg.questions = asg.questions.map(q => ({
+          n: q.n, text: q.text, topic: q.topic, difficulty: q.difficulty
+          // answer and solution are omitted
+        }));
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(asg));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // GET /api/comp-prep/list/:username — list all assignments for a student
+  if (req.url.match(/^\/api\/comp-prep\/list\//) && req.method === 'GET') {
+    const username = decodeURIComponent(pathOnly.split('/api/comp-prep/list/')[1]);
+    try {
+      const files = fs.readdirSync(COMP_PREP_DIR).filter(f => f.startsWith('cp_') && f.endsWith('.json'));
+      const list = [];
+      files.forEach(f => {
+        try {
+          const asg = JSON.parse(fs.readFileSync(path.join(COMP_PREP_DIR, f), 'utf8'));
+          if (asg.username === username) {
+            list.push({ id: asg.id, date: asg.date, title: asg.title, status: asg.status,
+              score: asg.result ? asg.result.score : null,
+              total: asg.result ? asg.result.total : null });
+          }
+        } catch (e) {}
+      });
+      list.sort((a, b) => b.date.localeCompare(a.date));
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ username, assignments: list }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // POST /api/comp-prep/:id/submit — submit answers (JSON with typed answers)
+  if (req.url.match(/^\/api\/comp-prep\/cp_[^/]+\/submit$/) && req.method === 'POST') {
+    const id = pathOnly.split('/api/comp-prep/')[1].replace('/submit', '');
+    const fp = path.join(COMP_PREP_DIR, id + '.json');
+    try {
+      if (!fs.existsSync(fp)) {
+        res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'Assignment not found' }));
+        return;
+      }
+      const asg = JSON.parse(fs.readFileSync(fp, 'utf8'));
+      const contentType = req.headers['content-type'] || '';
+
+      if (contentType.includes('multipart/form-data')) {
+        // File upload submission
+        const boundary = contentType.split('boundary=')[1];
+        const rawBody = await readBodyRaw(req);
+        const parts = parseMultipart(rawBody, boundary);
+        let answers = {};
+        parts.forEach(p => {
+          if (p.name === 'answers') {
+            try { answers = JSON.parse(p.data.toString('utf8')); } catch (e) {}
+          }
+          if (p.name === 'file' && p.filename) {
+            const ext = path.extname(p.filename) || '.bin';
+            const savedName = id + '_upload' + ext;
+            fs.writeFileSync(path.join(COMP_PREP_FILES_DIR, savedName), p.data);
+            asg.uploadedFile = savedName;
+            asg.uploadedOriginalName = p.filename;
+          }
+        });
+        Object.assign(asg.answers, answers);
+      } else {
+        // JSON submission
+        const body = JSON.parse(await readBody(req));
+        if (body.answers) Object.assign(asg.answers, body.answers);
+      }
+
+      // Auto-mark: compare typed answers to correct answers
+      let score = 0;
+      let total = asg.questions.length;
+      const details = [];
+      asg.questions.forEach(q => {
+        const studentAns = String(asg.answers[q.n] || '').trim();
+        const correctAns = String(q.answer || '').trim();
+        // Normalise both for comparison (case-insensitive, strip whitespace)
+        const isCorrect = studentAns !== '' && studentAns.toLowerCase() === correctAns.toLowerCase();
+        if (isCorrect) score++;
+        details.push({
+          n: q.n, studentAnswer: studentAns, correctAnswer: correctAns,
+          correct: isCorrect, solution: q.solution
+        });
+      });
+
+      asg.result = { score, total, percentage: Math.round((score / total) * 100), details };
+      asg.status = asg.uploadedFile ? 'submitted' : 'marked';
+      asg.submittedAt = new Date().toISOString();
+
+      // If only uploaded file (no typed answers), mark as submitted for manual review
+      const hasTypedAnswers = Object.keys(asg.answers).length > 0;
+      if (hasTypedAnswers) asg.status = 'marked';
+
+      fs.writeFileSync(fp, JSON.stringify(asg, null, 2), 'utf8');
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ success: true, status: asg.status, result: asg.result, questions: asg.questions }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // Serve competition prep page: /comp-prep/:id
+  if (req.url.match(/^\/comp-prep\/cp_/)) {
+    if (compPrepHtml) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+      res.end(compPrepHtml);
+    } else {
+      // Try re-reading in case it was deployed after server start
+      try {
+        compPrepHtml = fs.readFileSync(path.join(__dirname, 'comp-prep.html'), 'utf8');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+        res.end(compPrepHtml);
+      } catch (e) {
+        res.writeHead(404, { 'Content-Type': 'text/html' });
+        res.end('<h1>Competition Prep page not found</h1><p>The comp-prep.html file is missing from the deployment.</p>');
+      }
+    }
+    return;
+  }
+
+  // Serve uploaded comp-prep files
+  if (req.url.startsWith('/api/comp-prep-file/') && req.method === 'GET') {
+    const fileName = decodeURIComponent(pathOnly.split('/api/comp-prep-file/')[1]);
+    const safeName = fileName.replace(/[^a-zA-Z0-9_.-]/g, '');
+    const filePath = path.join(COMP_PREP_FILES_DIR, safeName);
+    try {
+      if (fs.existsSync(filePath)) {
+        const data = fs.readFileSync(filePath);
+        const ext = path.extname(safeName).toLowerCase();
+        const mimeTypes = {'.pdf':'application/pdf','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.gif':'image/gif','.heic':'image/heic','.txt':'text/plain'};
+        res.writeHead(200, {
+          'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+          'Content-Disposition': 'inline; filename="' + safeName + '"',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(data);
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'File not found' }));
       }
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Maths Competition Prep</title>
+<meta name="theme-color" content="#6366f1">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f0f4f8;color:#1a2a3a;line-height:1.6;min-height:100vh}
+:root{--p:#4361ee;--pl:#e8edff;--g:#10b981;--gl:#d1fae5;--w:#f59e0b;--wl:#fef3c7;--e:#ef4444;--el:#fee2e2;--v:#8b5cf6;--vl:#ede9fe;--c:#fff;--t:#1a2a3a;--t2:#64748b;--b:#e2e8f0;--r:12px;--s:0 2px 8px rgba(0,0,0,.08);--s2:0 4px 20px rgba(0,0,0,.12)}
+.app{max-width:700px;margin:0 auto;padding:20px}
+.hdr{background:linear-gradient(135deg,var(--p),var(--v));color:#fff;padding:24px 28px;border-radius:var(--r);margin-bottom:20px;box-shadow:var(--s2)}
+.hdr h1{font-size:22px;font-weight:700}.hdr .sub{opacity:.85;font-size:14px;margin-top:4px}
+.cd{background:var(--c);border-radius:var(--r);padding:24px;margin-bottom:16px;box-shadow:var(--s);border:1px solid var(--b)}
+.cd h2{font-size:18px;margin-bottom:4px}.cd h3{font-size:16px;margin-bottom:8px;color:var(--p)}
+.ds{color:var(--t2);font-size:14px;margin-bottom:16px}
+.bt{padding:10px 24px;border:none;border-radius:var(--r);font-size:14px;font-weight:600;cursor:pointer;transition:.2s;font-family:inherit;display:inline-block}
+.bp{background:var(--p);color:#fff}.bp:hover{opacity:.9}
+.bg{background:var(--g);color:#fff}.bg:hover{opacity:.9}
+.be{background:var(--e);color:#fff}
+.badge{display:inline-block;padding:3px 10px;border-radius:16px;font-size:11px;font-weight:600;margin-right:4px}
+.q-card{border:1px solid var(--b);border-radius:var(--r);padding:18px;margin-bottom:14px;background:var(--c)}
+.q-card .q-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px}
+.q-card .q-num{font-weight:700;color:var(--p);font-size:14px}
+.q-card .q-text{font-size:15px;margin-bottom:14px;line-height:1.7}
+.q-card input[type="text"]{width:100%;padding:10px 14px;border:2px solid var(--b);border-radius:8px;font-size:15px;font-family:inherit}
+.q-card input:focus{outline:none;border-color:var(--p)}
+.q-card.correct{border-color:var(--g);background:var(--gl)}
+.q-card.wrong{border-color:var(--e);background:var(--el)}
+.solution-box{background:#f8fafc;border:1px solid var(--b);border-radius:8px;padding:14px;margin-top:12px;font-size:14px;line-height:1.7}
+.solution-box h4{color:var(--p);margin-bottom:6px;font-size:13px;text-transform:uppercase}
+.score-panel{text-align:center;padding:30px;background:linear-gradient(135deg,var(--p),var(--v));color:#fff;border-radius:var(--r);margin-bottom:16px}
+.score-panel .big{font-size:48px;font-weight:800}
+.score-panel .pct{font-size:20px;opacity:.9;margin-top:4px}
+.upload-zone{border:2px dashed var(--b);border-radius:var(--r);padding:30px;text-align:center;cursor:pointer;transition:.2s;margin-top:16px}
+.upload-zone:hover{border-color:var(--p);background:var(--pl)}
+.upload-zone.has-file{border-color:var(--g);background:var(--gl)}
+.upload-zone input[type="file"]{display:none}
+.upload-preview{margin-top:12px}
+.upload-preview img{max-width:100%;max-height:300px;border-radius:8px;border:1px solid var(--b)}
+.or-divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:var(--t2);font-size:13px;font-weight:600}
+.or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:var(--b)}
+.loading{text-align:center;padding:60px 20px}
+.loading .spinner{width:40px;height:40px;border:4px solid var(--b);border-top-color:var(--p);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.timer{font-size:13px;color:var(--t2);margin-bottom:16px;display:flex;align-items:center;gap:6px}
+.tab-bar{display:flex;gap:8px;margin-bottom:16px}
+.tab-bar button{padding:8px 16px;border:2px solid var(--b);background:var(--c);border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:.2s}
+.tab-bar button:hover{border-color:var(--p)}.tab-bar button.on{background:var(--p);color:#fff;border-color:var(--p)}
+</style>
+</head>
+<body>
+<div class="app" id="APP">
+  <div class="loading">
+    <div class="spinner"></div>
+    <div>Loading your assignment...</div>
+  </div>
+</div>
+
+<script>
+var ASG_ID = window.location.pathname.split('/comp-prep/')[1];
+var ASG = null;
+var startTime = Date.now();
+var timerInterval = null;
+
+async function loadAssignment() {
+  try {
+    var resp = await fetch('/api/comp-prep/' + ASG_ID);
+    if (!resp.ok) throw new Error('Assignment not found');
+    ASG = await resp.json();
+    render();
+  } catch (e) {
+    document.getElementById('APP').innerHTML =
+      '<div class="cd" style="text-align:center;padding:40px">' +
+      '<div style="font-size:48px;margin-bottom:16px">&#128533;</div>' +
+      '<h2>Assignment Not Found</h2>' +
+      '<div class="ds">This assignment link may have expired or does not exist.</div>' +
+      '<a href="/" class="bt bp" style="text-decoration:none">Go to Portal</a></div>';
+  }
+}
+
+function render() {
+  if (ASG.status === 'marked' || ASG.status === 'submitted') {
+    renderResults();
+  } else {
+    renderQuestions();
+  }
+}
+
+function renderQuestions() {
+  var html = '';
+  html += '<div class="hdr"><h1>' + esc(ASG.title) + '</h1>';
+  html += '<div class="sub">' + ASG.date + ' &middot; ' + ASG.questions.length + ' questions</div></div>';
+
+  html += '<div class="cd">';
+  html += '<div class="ds">Answer all questions below, then click Submit. You can also upload a photo of your handwritten work instead of (or in addition to) typing answers.</div>';
+  html += '<div class="timer" id="timer">&#9201; Time: 00:00</div>';
+  html += '</div>';
+
+  // Tab bar for mode selection
+  html += '<div class="tab-bar">';
+  html += '<button class="on" id="tabType" onclick="switchTab(\'type\')">Type Answers</button>';
+  html += '<button id="tabUpload" onclick="switchTab(\'upload\')">Upload Work</button>';
+  html += '</div>';
+
+  // TYPE ANSWERS section
+  html += '<div id="typeSection">';
+  ASG.questions.forEach(function(q) {
+    var diffStars = '';
+    for (var i = 0; i < parseDifficulty(q.difficulty); i++) diffStars += '&#11088;';
+
+    html += '<div class="q-card" id="qcard_' + q.n + '">';
+    html += '<div class="q-head">';
+    html += '<span class="q-num">Question ' + q.n + '</span>';
+    html += '<span>';
+    if (q.topic) html += '<span class="badge" style="background:var(--vl);color:#5b21b6">' + esc(q.topic) + '</span>';
+    html += '<span class="badge" style="background:var(--wl);color:#92400e">' + diffStars + '</span>';
+    html += '</span></div>';
+    html += '<div class="q-text">' + esc(q.text) + '</div>';
+    html += '<input type="text" id="ans_' + q.n + '" placeholder="Type your answer here" autocomplete="off">';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // UPLOAD WORK section
+  html += '<div id="uploadSection" style="display:none">';
+  html += '<div class="cd">';
+  html += '<h3>Upload Your Work</h3>';
+  html += '<div class="ds">Take a photo of your handwritten work or upload a file (image, PDF). You can still type answers above alongside your upload.</div>';
+  html += '<div class="upload-zone" id="dropZone" onclick="document.getElementById(\'fileInput\').click()">';
+  html += '<div style="font-size:36px;margin-bottom:8px">&#128247;</div>';
+  html += '<div style="font-weight:600;margin-bottom:4px">Tap to choose a file or take a photo</div>';
+  html += '<div style="font-size:12px;color:var(--t2)">JPG, PNG, PDF &middot; Max 10 MB</div>';
+  html += '<input type="file" id="fileInput" accept="image/*,.pdf" onchange="handleFileSelect(this)">';
+  html += '</div>';
+  html += '<div class="upload-preview" id="uploadPreview"></div>';
+  html += '</div>';
+  html += '</div>';
+
+  html += '<div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap">';
+  html += '<button class="bt bg" onclick="submitAnswers()" id="submitBtn">Submit My Answers</button>';
+  html += '<a href="/" class="bt" style="background:var(--b);color:var(--t);text-decoration:none">Back to Portal</a>';
+  html += '</div>';
+
+  document.getElementById('APP').innerHTML = html;
+
+  // Start timer
+  startTime = Date.now();
+  timerInterval = setInterval(updateTimer, 1000);
+}
+
+function renderResults() {
+  var r = ASG.result;
+  var html = '';
+
+  // Score panel
+  var emoji = r.percentage >= 80 ? '&#127942;' : r.percentage >= 50 ? '&#128170;' : '&#128171;';
+  var msg = r.percentage >= 80 ? 'Excellent work!' : r.percentage >= 50 ? 'Good effort, keep practising!' : 'Keep going, you\'re learning!';
+
+  html += '<div class="score-panel">';
+  html += '<div style="font-size:48px;margin-bottom:8px">' + emoji + '</div>';
+  html += '<div class="big">' + r.score + ' / ' + r.total + '</div>';
+  html += '<div class="pct">' + r.percentage + '%</div>';
+  html += '<div style="margin-top:8px;opacity:.85">' + msg + '</div></div>';
+
+  html += '<div class="hdr" style="background:linear-gradient(135deg,#10b981,#06b6d4)"><h1>' + esc(ASG.title) + ' — Results</h1>';
+  html += '<div class="sub">' + ASG.date + '</div></div>';
+
+  // If they uploaded a file, show it
+  if (ASG.uploadedFile) {
+    html += '<div class="cd">';
+    html += '<h3>&#128206; Your Uploaded Work</h3>';
+    var isImage = /\.(jpg|jpeg|png|gif|heic)$/i.test(ASG.uploadedFile);
+    if (isImage) {
+      html += '<img src="/api/comp-prep-file/' + ASG.uploadedFile + '" style="max-width:100%;border-radius:8px;border:1px solid var(--b)">';
+    } else {
+      html += '<a href="/api/comp-prep-file/' + ASG.uploadedFile + '" target="_blank" class="bt bp" style="text-decoration:none">View uploaded file</a>';
+    }
+    html += '</div>';
+  }
+
+  // Question-by-question review
+  ASG.questions.forEach(function(q, i) {
+    var d = r.details ? r.details[i] : null;
+    var cls = d ? (d.correct ? 'correct' : 'wrong') : '';
+
+    var diffStars = '';
+    for (var j = 0; j < parseDifficulty(q.difficulty); j++) diffStars += '&#11088;';
+
+    html += '<div class="q-card ' + cls + '">';
+    html += '<div class="q-head">';
+    html += '<span class="q-num">Question ' + q.n + ' ' + (d ? (d.correct ? '&#9989;' : '&#10060;') : '') + '</span>';
+    html += '<span>';
+    if (q.topic) html += '<span class="badge" style="background:var(--vl);color:#5b21b6">' + esc(q.topic) + '</span>';
+    html += '<span class="badge" style="background:var(--wl);color:#92400e">' + diffStars + '</span>';
+    html += '</span></div>';
+    html += '<div class="q-text">' + esc(q.text) + '</div>';
+
+    if (d) {
+      html += '<div style="margin-bottom:8px">';
+      html += '<div style="font-size:13px;color:var(--t2)">Your answer:</div>';
+      html += '<div style="font-weight:600">' + (d.studentAnswer || '<em style="color:var(--t2)">No answer</em>') + '</div>';
+      html += '</div>';
+      html += '<div style="margin-bottom:8px">';
+      html += '<div style="font-size:13px;color:var(--g)">Correct answer:</div>';
+      html += '<div style="font-weight:700;color:var(--g)">' + esc(d.correctAnswer) + '</div>';
+      html += '</div>';
+    }
+
+    if (q.solution) {
+      html += '<div class="solution-box"><h4>Worked Solution</h4>';
+      html += '<div>' + esc(q.solution) + '</div></div>';
+    }
+    html += '</div>';
+  });
+
+  html += '<div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap">';
+  html += '<a href="/" class="bt bp" style="text-decoration:none">Back to Portal</a>';
+  html += '</div>';
+
+  document.getElementById('APP').innerHTML = html;
+}
+
+function switchTab(tab) {
+  document.getElementById('tabType').className = tab === 'type' ? 'on' : '';
+  document.getElementById('tabUpload').className = tab === 'upload' ? 'on' : '';
+  document.getElementById('typeSection').style.display = tab === 'type' ? 'block' : 'none';
+  document.getElementById('uploadSection').style.display = tab === 'upload' ? 'block' : 'none';
+}
+
+var selectedFile = null;
+function handleFileSelect(input) {
+  if (input.files && input.files[0]) {
+    selectedFile = input.files[0];
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      alert('File is too large. Maximum size is 10 MB.');
+      selectedFile = null;
+      return;
+    }
+    var zone = document.getElementById('dropZone');
+    zone.className = 'upload-zone has-file';
+    zone.innerHTML = '<div style="font-size:24px">&#9989;</div><div style="font-weight:600">' + esc(selectedFile.name) + '</div><div style="font-size:12px;color:var(--t2)">' + (selectedFile.size / 1024).toFixed(0) + ' KB &middot; Tap to change</div><input type="file" id="fileInput" accept="image/*,.pdf" onchange="handleFileSelect(this)" style="display:none">';
+
+    // Show preview if image
+    var preview = document.getElementById('uploadPreview');
+    if (selectedFile.type.startsWith('image/')) {
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        preview.innerHTML = '<img src="' + e.target.result + '">';
+      };
+      reader.readAsDataURL(selectedFile);
+    } else {
+      preview.innerHTML = '<div class="cd" style="padding:12px;font-size:13px">PDF file selected: ' + esc(selectedFile.name) + '</div>';
+    }
+  }
+}
+
+async function submitAnswers() {
+  // Collect typed answers
+  var answers = {};
+  var hasAnyAnswer = false;
+  ASG.questions.forEach(function(q) {
+    var input = document.getElementById('ans_' + q.n);
+    if (input && input.value.trim()) {
+      answers[q.n] = input.value.trim();
+      hasAnyAnswer = true;
+    }
+  });
+
+  if (!hasAnyAnswer && !selectedFile) {
+    alert('Please answer at least one question or upload your work before submitting.');
+    return;
+  }
+
+  var btn = document.getElementById('submitBtn');
+  btn.textContent = 'Submitting...';
+  btn.disabled = true;
+
+  try {
+    var resp;
+    if (selectedFile) {
+      // Multipart upload
+      var formData = new FormData();
+      formData.append('answers', JSON.stringify(answers));
+      formData.append('file', selectedFile);
+      resp = await fetch('/api/comp-prep/' + ASG_ID + '/submit', { method: 'POST', body: formData });
+    } else {
+      // JSON
+      resp = await fetch('/api/comp-prep/' + ASG_ID + '/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers: answers })
+      });
+    }
+
+    var data = await resp.json();
+    if (data.success) {
+      clearInterval(timerInterval);
+      // Reload with full data (including solutions)
+      ASG.result = data.result;
+      ASG.questions = data.questions; // now includes solutions
+      ASG.status = data.status;
+      render();
+      window.scrollTo(0, 0);
+    } else {
+      throw new Error(data.error || 'Submit failed');
+    }
+  } catch (e) {
+    alert('Error submitting: ' + e.message);
+    btn.textContent = 'Submit My Answers';
+    btn.disabled = false;
+  }
+}
+
+function updateTimer() {
+  var elapsed = Math.floor((Date.now() - startTime) / 1000);
+  var m = Math.floor(elapsed / 60);
+  var s = elapsed % 60;
+  var el = document.getElementById('timer');
+  if (el) el.innerHTML = '&#9201; Time: ' + pad(m) + ':' + pad(s);
+}
+
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+function parseDifficulty(d) {
+  if (!d) return 2;
+  var s = String(d).toLowerCase();
+  if (s.includes('easy') || s === '1') return 1;
+  if (s.includes('medium') || s === '2') return 2;
+  if (s.includes('hard') || s === '3') return 3;
+  if (s.includes('competition') || s === '4') return 4;
+  // Count star emoji
+  var stars = (s.match(/⭐/g) || []).length;
+  return stars || 2;
+}
+
+function esc(s) {
+  if (!s) return '';
+  var d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+// Init
+loadAssignment();
+</script>
+</body>
+</html>
