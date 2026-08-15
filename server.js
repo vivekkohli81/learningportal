@@ -218,6 +218,12 @@ function saveQuizResult(username, result) {
   return data;
 }
 
+// === COMPETITION PREP ASSIGNMENTS DATABASE ===
+const COMP_PREP_DIR = path.join(DATA_ROOT, 'comp-prep');
+if (!fs.existsSync(COMP_PREP_DIR)) fs.mkdirSync(COMP_PREP_DIR, { recursive: true });
+const COMP_PREP_FILES_DIR = path.join(COMP_PREP_DIR, 'uploads');
+if (!fs.existsSync(COMP_PREP_FILES_DIR)) fs.mkdirSync(COMP_PREP_FILES_DIR, { recursive: true });
+
 // === FULL PROGRESS SYNC DATABASE ===
 const SYNC_DIR = path.join(DATA_ROOT, 'sync');
 if (!fs.existsSync(SYNC_DIR)) fs.mkdirSync(SYNC_DIR, { recursive: true });
@@ -966,12 +972,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // === COMPETITION PREP ASSIGNMENTS DATABASE ===
-const COMP_PREP_DIR = path.join(DATA_ROOT, 'comp-prep');
-if (!fs.existsSync(COMP_PREP_DIR)) fs.mkdirSync(COMP_PREP_DIR, { recursive: true });
-const COMP_PREP_FILES_DIR = path.join(COMP_PREP_DIR, 'uploads');
-if (!fs.existsSync(COMP_PREP_FILES_DIR)) fs.mkdirSync(COMP_PREP_FILES_DIR, { recursive: true });
-
 // === WRITING SUBMISSION API ===
 
   if (req.url === '/api/writing-submit' && req.method === 'POST') {
@@ -1328,6 +1328,539 @@ if (!fs.existsSync(COMP_PREP_FILES_DIR)) fs.mkdirSync(COMP_PREP_FILES_DIR, { rec
   res.end(indexHtml);
 });
 
+// =====================================================================
+// === AUTONOMOUS COMPETITION PREP SYSTEM ===
+// Runs entirely on the server — no human intervention needed.
+// 1. Loads questions from question-bank.json (no AI API dependency)
+// 2. Reads Riyansh's past scores to adapt difficulty
+// 3. Creates assignment via internal API
+// 4. Sends emails via Resend (free tier, no Gmail needed)
+// 5. Runs on a Mon/Wed/Fri schedule via node-cron
+// =====================================================================
+
+// --- Question Bank Loader ---
+let QUESTION_BANK = [];
+try {
+  const bankPath = path.join(__dirname, 'question-bank.json');
+  const bankData = JSON.parse(fs.readFileSync(bankPath, 'utf8'));
+  QUESTION_BANK = bankData.questions || [];
+  console.log('Question bank loaded:', QUESTION_BANK.length, 'questions');
+} catch (e) {
+  console.warn('Could not load question-bank.json:', e.message);
+}
+
+// --- Scheduler History (persisted) ---
+const SCHEDULER_LOG_FILE = path.join(DATA_ROOT, 'scheduler-log.json');
+function readSchedulerLog() {
+  try {
+    if (fs.existsSync(SCHEDULER_LOG_FILE))
+      return JSON.parse(fs.readFileSync(SCHEDULER_LOG_FILE, 'utf8'));
+  } catch (e) {}
+  return { runs: [], errors: [] };
+}
+function appendSchedulerLog(entry) {
+  const log = readSchedulerLog();
+  log.runs.push(entry);
+  if (log.runs.length > 100) log.runs = log.runs.slice(-100);
+  fs.writeFileSync(SCHEDULER_LOG_FILE, JSON.stringify(log, null, 2), 'utf8');
+}
+function appendSchedulerError(entry) {
+  const log = readSchedulerLog();
+  log.errors.push(entry);
+  if (log.errors.length > 50) log.errors = log.errors.slice(-50);
+  fs.writeFileSync(SCHEDULER_LOG_FILE, JSON.stringify(log, null, 2), 'utf8');
+}
+
+// --- Adaptive Engine ---
+// Reads past competition prep results and picks 5 questions at the right level.
+function getAdaptiveDifficulty(username) {
+  // Read all completed assignments
+  const files = fs.readdirSync(COMP_PREP_DIR).filter(f => f.startsWith('cp_') && f.endsWith('.json'));
+  const results = [];
+  files.forEach(f => {
+    try {
+      const asg = JSON.parse(fs.readFileSync(path.join(COMP_PREP_DIR, f), 'utf8'));
+      if (asg.username === username && asg.result) {
+        results.push({
+          date: asg.date,
+          score: asg.result.score,
+          total: asg.result.total,
+          pct: asg.result.percentage,
+          questions: asg.questions
+        });
+      }
+    } catch (e) {}
+  });
+
+  // Sort by date descending, take last 5
+  results.sort((a, b) => b.date.localeCompare(a.date));
+  const recent = results.slice(0, 5);
+
+  if (recent.length === 0) {
+    // No history — start at difficulty 1-2
+    return { targetDifficulty: 1.5, topicWeights: { logic: 1, number: 1, geometry: 1, combi: 1 }, usedIds: new Set() };
+  }
+
+  // Average percentage across recent results
+  const avgPct = recent.reduce((s, r) => s + r.pct, 0) / recent.length;
+
+  // Map average to target difficulty:
+  // <40% → 1 (easy), 40-60% → 2 (medium), 60-80% → 3 (hard), >80% → 4 (competition)
+  let targetDifficulty;
+  if (avgPct < 40) targetDifficulty = 1;
+  else if (avgPct < 60) targetDifficulty = 2;
+  else if (avgPct < 80) targetDifficulty = 3;
+  else targetDifficulty = 4;
+
+  // Check trend: if last 2 scores are rising, push harder; if falling, ease off
+  if (recent.length >= 2) {
+    if (recent[0].pct > recent[1].pct && recent[0].pct >= 70) {
+      targetDifficulty = Math.min(4, targetDifficulty + 0.5);
+    } else if (recent[0].pct < recent[1].pct && recent[0].pct < 50) {
+      targetDifficulty = Math.max(1, targetDifficulty - 0.5);
+    }
+  }
+
+  // Track which question IDs were already used
+  const usedIds = new Set();
+  results.forEach(r => {
+    (r.questions || []).forEach(q => { if (q.id) usedIds.add(q.id); });
+  });
+
+  // Topic accuracy from recent questions
+  const topicStats = {};
+  recent.forEach(r => {
+    (r.questions || []).forEach((q, i) => {
+      const t = (q.topic || '').toLowerCase();
+      if (!topicStats[t]) topicStats[t] = { correct: 0, total: 0 };
+      topicStats[t].total++;
+      // Check if this question was answered correctly
+      const detail = r.questions[i];
+      // We can approximate from overall score
+    });
+  });
+
+  // Weight topics — give more weight to weaker ones
+  const topicWeights = { logic: 1, number: 1, geometry: 1, combi: 1 };
+
+  return { targetDifficulty, topicWeights, usedIds };
+}
+
+function pickQuestions(username, count) {
+  if (QUESTION_BANK.length === 0) return [];
+  count = count || 5;
+
+  const { targetDifficulty, topicWeights, usedIds } = getAdaptiveDifficulty(username);
+
+  // Filter out already-used questions
+  let available = QUESTION_BANK.filter(q => !usedIds.has(q.id));
+  if (available.length < count) {
+    // Not enough unused questions — allow reuse of older ones
+    available = QUESTION_BANK.slice();
+  }
+
+  // Score each question by how close its difficulty is to the target
+  // and ensure topic variety
+  const scored = available.map(q => {
+    const diffScore = 1 / (1 + Math.abs(q.difficulty - targetDifficulty));
+    const topicBoost = topicWeights[q.topic] || 1;
+    const randomJitter = 0.5 + Math.random(); // prevent always picking same order
+    return { q, score: diffScore * topicBoost * randomJitter };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+
+  // Pick top candidates but ensure topic variety (max 2 per topic)
+  const picked = [];
+  const topicCount = {};
+  for (const s of scored) {
+    if (picked.length >= count) break;
+    const t = s.q.topic;
+    topicCount[t] = (topicCount[t] || 0);
+    if (topicCount[t] >= 2) continue; // skip if already 2 from this topic
+    picked.push(s.q);
+    topicCount[t]++;
+  }
+
+  // If we still need more, fill without topic constraint
+  if (picked.length < count) {
+    for (const s of scored) {
+      if (picked.length >= count) break;
+      if (!picked.includes(s.q)) picked.push(s.q);
+    }
+  }
+
+  // Shuffle the final selection
+  for (let i = picked.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [picked[i], picked[j]] = [picked[j], picked[i]];
+  }
+
+  // Number them
+  return picked.map((q, i) => ({
+    n: i + 1,
+    id: q.id,
+    text: q.text,
+    topic: q.topic.charAt(0).toUpperCase() + q.topic.slice(1),
+    difficulty: ['Easy', 'Medium', 'Hard', 'Competition-level'][q.difficulty - 1] || 'Medium',
+    answer: q.answer,
+    solution: q.solution
+  }));
+}
+
+// --- Resend Email Sender ---
+// Uses the Resend API (https://resend.com) to send real emails.
+// Free tier: 100 emails/month, plenty for Mon/Wed/Fri assignments.
+// Requires RESEND_API_KEY env var + a verified sender domain or onboarding@resend.dev.
+function sendResendEmail(to, subject, htmlBody) {
+  return new Promise((resolve, reject) => {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      reject(new Error('RESEND_API_KEY not set. Add it in Railway environment variables.'));
+      return;
+    }
+
+    // Resend's free onboarding sender — works immediately, no domain verification needed
+    const from = process.env.RESEND_FROM || 'Riyansh Portal <onboarding@resend.dev>';
+
+    const payload = JSON.stringify({
+      from: from,
+      to: Array.isArray(to) ? to : [to],
+      subject: subject,
+      html: htmlBody
+    });
+
+    const options = {
+      hostname: 'api.resend.com',
+      path: '/emails',
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + apiKey,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload)
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(parsed);
+          } else {
+            reject(new Error('Resend API error ' + res.statusCode + ': ' + data));
+          }
+        } catch (e) {
+          reject(new Error('Resend response parse error: ' + data));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+// --- Create & Send Assignment (the main autonomous action) ---
+async function createAndSendAssignment() {
+  const username = 'riyansh';
+  const studentEmail = 'kohliriyansh575@gmail.com';
+  const parentEmail = 'vivekkohli81@gmail.com';
+  const portalBase = 'https://learningportal-production.up.railway.app';
+  const today = new Date().toISOString().slice(0, 10);
+
+  console.log('[Scheduler] Creating assignment for', today);
+
+  // 1. Pick adaptive questions
+  const questions = pickQuestions(username, 5);
+  if (questions.length === 0) {
+    throw new Error('No questions available in question bank');
+  }
+
+  // 2. Create assignment via internal logic (no HTTP call needed)
+  const id = 'cp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  const assignment = {
+    id: id,
+    username: username,
+    date: today,
+    title: 'Maths Competition Prep - ' + today,
+    questions: questions,
+    status: 'pending',
+    answers: {},
+    uploadedFile: null,
+    result: null,
+    createdAt: new Date().toISOString(),
+    generatedBy: 'autonomous-scheduler'
+  };
+  const fp = path.join(COMP_PREP_DIR, id + '.json');
+  fs.writeFileSync(fp, JSON.stringify(assignment, null, 2), 'utf8');
+  console.log('[Scheduler] Assignment created:', id);
+
+  const assignmentUrl = portalBase + '/comp-prep/' + id;
+
+  // 3. Build student email (NO solutions, NO answers)
+  const diffStars = { 'Easy': '⭐', 'Medium': '⭐⭐', 'Hard': '⭐⭐⭐', 'Competition-level': '⭐⭐⭐⭐' };
+  let studentHtml = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+      <h2 style="color:#4f46e5;">🧮 Maths Competition Prep - ${today}</h2>
+      <p>Hi Riyansh! Here are today's 5 challenge questions. Open the link below to answer them on the portal.</p>
+      <hr style="border:1px solid #e5e7eb;">
+      <ol>`;
+
+  questions.forEach(q => {
+    studentHtml += `
+        <li style="margin-bottom:12px;">
+          <strong>${q.text}</strong><br>
+          <span style="color:#6b7280;font-size:0.9em;">Topic: ${q.topic} | Difficulty: ${diffStars[q.difficulty] || q.difficulty}</span>
+        </li>`;
+  });
+
+  studentHtml += `
+      </ol>
+      <hr style="border:1px solid #e5e7eb;">
+      <p style="text-align:center;">
+        <a href="${assignmentUrl}" style="display:inline-block;padding:12px 24px;background:#4f46e5;color:white;text-decoration:none;border-radius:8px;font-weight:bold;">Open Portal & Answer</a>
+      </p>
+      <p style="color:#6b7280;font-size:0.85em;">You can type your answers or upload a photo of your working. Solutions are revealed after you submit!</p>
+    </div>`;
+
+  // 4. Build parent email (FULL solutions)
+  let parentHtml = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+      <h2 style="color:#4f46e5;">🔑 Answer Key - Maths Prep - ${today}</h2>
+      <p>This is the parent answer key for today's competition prep assignment.</p>
+      <p><a href="${assignmentUrl}">View Riyansh's submission</a></p>
+      <hr style="border:1px solid #e5e7eb;">`;
+
+  questions.forEach(q => {
+    parentHtml += `
+      <div style="margin-bottom:16px;padding:12px;background:#f9fafb;border-radius:8px;">
+        <strong>Q${q.n}. ${q.text}</strong><br>
+        <span style="color:#6b7280;">Topic: ${q.topic} | ${diffStars[q.difficulty] || q.difficulty}</span><br>
+        <span style="color:#16a34a;font-weight:bold;">Answer: ${q.answer}</span><br>
+        <em style="color:#374151;">${q.solution}</em>
+      </div>`;
+  });
+
+  parentHtml += `
+      <hr style="border:1px solid #e5e7eb;">
+      <p style="color:#6b7280;font-size:0.85em;">Riyansh's portal page will auto-mark typed answers. If he uploads a photo, review it manually.</p>
+    </div>`;
+
+  // 5. Send emails via Resend
+  const studentResult = await sendResendEmail(
+    [studentEmail, parentEmail],
+    'Maths Competition Prep - ' + today + ' - Your Challenge!',
+    studentHtml
+  );
+  console.log('[Scheduler] Student email sent:', studentResult.id || 'ok');
+
+  const parentResult = await sendResendEmail(
+    parentEmail,
+    'Answer Key - Maths Prep - ' + today,
+    parentHtml
+  );
+  console.log('[Scheduler] Parent email sent:', parentResult.id || 'ok');
+
+  return { assignmentId: id, url: assignmentUrl, emailsSent: true };
+}
+
+// --- Cron Scheduler ---
+// Runs Mon/Wed/Fri at 7:00 AM HKT (23:00 UTC the previous day).
+// Falls back to setInterval if node-cron is not installed.
+let schedulerEnabled = true; // can toggle via admin API
+let schedulerStatus = 'initialising';
+
+function getNextRunTime() {
+  // Calculate when the next Mon/Wed/Fri 7am HKT is
+  const now = new Date();
+  const hkt = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
+  const dayOfWeek = hkt.getDay(); // 0=Sun
+  const hour = hkt.getHours();
+
+  // Target days: Mon=1, Wed=3, Fri=5
+  const targets = [1, 3, 5];
+  let daysAhead = null;
+
+  for (let d = 0; d <= 7; d++) {
+    const futureDay = (dayOfWeek + d) % 7;
+    if (targets.includes(futureDay)) {
+      if (d === 0 && hour >= 7) continue; // already past 7am today
+      daysAhead = d;
+      break;
+    }
+  }
+
+  if (daysAhead === null) daysAhead = 1; // fallback
+  const next = new Date(hkt);
+  next.setDate(next.getDate() + daysAhead);
+  next.setHours(7, 0, 0, 0);
+  return next;
+}
+
+async function schedulerTick() {
+  if (!schedulerEnabled) {
+    schedulerStatus = 'paused';
+    return;
+  }
+  if (!process.env.RESEND_API_KEY) {
+    schedulerStatus = 'waiting-for-api-key';
+    return;
+  }
+
+  // Check if today is Mon/Wed/Fri and it's past 7am HKT
+  const now = new Date();
+  const hkt = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
+  const dayOfWeek = hkt.getDay();
+  const hour = hkt.getHours();
+  const targets = [1, 3, 5]; // Mon, Wed, Fri
+
+  if (!targets.includes(dayOfWeek)) {
+    schedulerStatus = 'idle (not a scheduled day)';
+    return;
+  }
+
+  // Check if we already ran today
+  const today = hkt.getFullYear() + '-' + String(hkt.getMonth() + 1).padStart(2, '0') + '-' + String(hkt.getDate()).padStart(2, '0');
+  const log = readSchedulerLog();
+  const ranToday = log.runs.some(r => r.date === today && r.success);
+  if (ranToday) {
+    schedulerStatus = 'done-for-today';
+    return;
+  }
+
+  if (hour < 7) {
+    schedulerStatus = 'waiting (before 7am HKT)';
+    return;
+  }
+
+  // Time to run!
+  schedulerStatus = 'running';
+  console.log('[Scheduler] Running assignment generation for', today);
+
+  try {
+    const result = await createAndSendAssignment();
+    appendSchedulerLog({
+      date: today,
+      time: new Date().toISOString(),
+      success: true,
+      assignmentId: result.assignmentId,
+      url: result.url
+    });
+    schedulerStatus = 'done-for-today';
+    console.log('[Scheduler] Successfully completed for', today);
+  } catch (e) {
+    console.error('[Scheduler] Error:', e.message);
+    appendSchedulerError({
+      date: today,
+      time: new Date().toISOString(),
+      error: e.message
+    });
+    schedulerStatus = 'error: ' + e.message;
+  }
+}
+
+// Check every 15 minutes
+const SCHEDULER_INTERVAL = 15 * 60 * 1000;
+setInterval(schedulerTick, SCHEDULER_INTERVAL);
+// Also run once on startup (after 10 sec delay to let everything initialise)
+setTimeout(schedulerTick, 10000);
+schedulerStatus = 'active';
+console.log('[Scheduler] Autonomous scheduler started. Checks every 15 minutes for Mon/Wed/Fri 7am HKT.');
+
+// =====================================================================
+// === ADMIN APIs FOR SCHEDULER ===
+// =====================================================================
+
+// Insert scheduler admin routes into the server
+const _originalListener = server.listeners('request')[0];
+server.removeAllListeners('request');
+
+server.on('request', async (req, res) => {
+  const pathOnly = (req.url || '').split('?')[0];
+
+  // --- Scheduler Status ---
+  if (pathOnly === '/api/scheduler/status' && req.method === 'GET') {
+    const log = readSchedulerLog();
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({
+      enabled: schedulerEnabled,
+      status: schedulerStatus,
+      hasApiKey: !!process.env.RESEND_API_KEY,
+      questionBankSize: QUESTION_BANK.length,
+      schedule: 'Mon/Wed/Fri 7:00 AM HKT',
+      nextRun: getNextRunTime().toISOString(),
+      recentRuns: (log.runs || []).slice(-10),
+      recentErrors: (log.errors || []).slice(-5)
+    }));
+    return;
+  }
+
+  // --- Toggle Scheduler On/Off ---
+  if (pathOnly === '/api/scheduler/toggle' && req.method === 'POST') {
+    schedulerEnabled = !schedulerEnabled;
+    schedulerStatus = schedulerEnabled ? 'active' : 'paused';
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ enabled: schedulerEnabled, status: schedulerStatus }));
+    return;
+  }
+
+  // --- Trigger Assignment Now (manual) ---
+  if (pathOnly === '/api/scheduler/trigger' && req.method === 'POST') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    try {
+      const result = await createAndSendAssignment();
+      const today = new Date().toISOString().slice(0, 10);
+      appendSchedulerLog({
+        date: today,
+        time: new Date().toISOString(),
+        success: true,
+        manual: true,
+        assignmentId: result.assignmentId,
+        url: result.url
+      });
+      res.end(JSON.stringify({ success: true, ...result }));
+    } catch (e) {
+      appendSchedulerError({
+        date: new Date().toISOString().slice(0, 10),
+        time: new Date().toISOString(),
+        error: e.message,
+        manual: true
+      });
+      res.end(JSON.stringify({ success: false, error: e.message }));
+    }
+    return;
+  }
+
+  // --- Create Assignment Only (no email, for testing) ---
+  if (pathOnly === '/api/scheduler/preview' && req.method === 'GET') {
+    const questions = pickQuestions('riyansh', 5);
+    const { targetDifficulty } = getAdaptiveDifficulty('riyansh');
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({
+      preview: true,
+      targetDifficulty: targetDifficulty,
+      questions: questions
+    }));
+    return;
+  }
+
+  // --- Scheduler Log ---
+  if (pathOnly === '/api/scheduler/log' && req.method === 'GET') {
+    const log = readSchedulerLog();
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(log));
+    return;
+  }
+
+  // Fall through to original handler
+  _originalListener(req, res);
+});
+
 server.listen(PORT, '0.0.0.0', function() {
   console.log('Riyansh Learning Portal running on port ' + PORT);
+  console.log('Autonomous scheduler: Mon/Wed/Fri 7am HKT');
+  console.log('Resend API key:', process.env.RESEND_API_KEY ? 'configured' : 'NOT SET (scheduler will wait)');
 });

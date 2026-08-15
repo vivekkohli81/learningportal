@@ -1,0 +1,53 @@
+{
+  "id": "cp_1786777519764_tsrm",
+  "username": "riyansh",
+  "date": "2026-08-15",
+  "title": "Maths Competition Prep - 15 Aug 2026",
+  "questions": [
+    {
+      "n": 1,
+      "text": "What is 2 x 3 x 3 x 3?",
+      "topic": "Number Sense",
+      "difficulty": "Medium",
+      "answer": "54",
+      "solution": "2 x 3 = 6, 6 x 3 = 18, 18 x 3 = 54"
+    },
+    {
+      "n": 2,
+      "text": "How many times does digit 7 appear in 1-100?",
+      "topic": "Logic",
+      "difficulty": "Hard",
+      "answer": "20",
+      "solution": "10 in units + 10 in tens = 20"
+    }
+  ],
+  "status": "marked",
+  "answers": {
+    "1": "54",
+    "2": "19"
+  },
+  "uploadedFile": null,
+  "result": {
+    "score": 1,
+    "total": 2,
+    "percentage": 50,
+    "details": [
+      {
+        "n": 1,
+        "studentAnswer": "54",
+        "correctAnswer": "54",
+        "correct": true,
+        "solution": "2 x 3 = 6, 6 x 3 = 18, 18 x 3 = 54"
+      },
+      {
+        "n": 2,
+        "studentAnswer": "19",
+        "correctAnswer": "20",
+        "correct": false,
+        "solution": "10 in units + 10 in tens = 20"
+      }
+    ]
+  },
+  "createdAt": "2026-08-15T07:05:19.764Z",
+  "submittedAt": "2026-08-15T07:05:33.984Z"
+}

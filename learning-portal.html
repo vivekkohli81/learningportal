@@ -4543,8 +4543,8 @@ function renderKidProgress(){
 
   // Check view mode
   if(window._progressView==='adaptive'){
-    detail.innerHTML=renderAdaptiveParentDash(p,k.name)+'<div class="cd" id="compPrepSection"><h3>Competition Prep Assignments</h3><div class="ds">Loading from server...</div></div>'+'<div style="text-align:center;margin-top:8px"><button class="bt" style="font-size:12px;padding:6px 16px;background:var(--p);color:white" onclick="window[\'_kidFetched_'+idx+'\']=false;renderKidProgress()">Refresh from Server</button></div>';
-    fetchCompPrepResults(k.username);
+    detail.innerHTML=renderAdaptiveParentDash(p,k.name)+'<div class="cd" id="compPrepSection"><h3>Competition Prep Assignments</h3><div class="ds">Loading from server...</div></div>'+renderSchedulerPanel()+'<div style="text-align:center;margin-top:8px"><button class="bt" style="font-size:12px;padding:6px 16px;background:var(--p);color:white" onclick="window[\'_kidFetched_'+idx+'\']=false;renderKidProgress()">Refresh from Server</button></div>';
+    fetchCompPrepResults(k.username);fetchSchedulerStatus();
     return;
   }
 
@@ -4618,6 +4618,70 @@ function fetchCompPrepResults(username){
     if(sec)sec.innerHTML='<h3>Competition Prep Assignments</h3><div class="ds">Competition prep data is only available when hosted online.</div>';
   }
 }
+// === SCHEDULER ADMIN PANEL ===
+function renderSchedulerPanel(){
+  if(!isHosted())return'<div class="cd"><h3>Scheduler</h3><div class="ds">Only available on hosted portal.</div></div>';
+  return'<div class="cd" id="schedulerPanel"><h3>🤖 Autonomous Scheduler</h3><div class="ds">Loading...</div></div>';
+}
+function fetchSchedulerStatus(){
+  if(!isHosted())return;
+  fetch('/api/scheduler/status').then(function(r){return r.json();}).then(function(d){
+    var p=document.getElementById('schedulerPanel');
+    if(!p)return;
+    var statusColor=d.enabled?(d.status==='done-for-today'?'var(--g)':'var(--p)'):'var(--e)';
+    var html='<h3>🤖 Autonomous Scheduler</h3>';
+    html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">';
+    html+='<span class="badge" style="background:'+statusColor+';color:white;padding:4px 10px">'+(d.enabled?'Enabled':'Paused')+'</span>';
+    html+='<span class="badge" style="background:var(--pl);color:var(--p);padding:4px 10px">'+d.status+'</span>';
+    html+='<span class="badge" style="background:'+(d.hasApiKey?'var(--gl)':'#fee2e2')+';color:'+(d.hasApiKey?'var(--g)':'var(--e)')+';padding:4px 10px">API Key: '+(d.hasApiKey?'✓ Set':'✗ Missing')+'</span>';
+    html+='</div>';
+    html+='<div class="ds">Schedule: '+d.schedule+' | Questions: '+d.questionBankSize+'</div>';
+    html+='<div class="ds">Next run: '+new Date(d.nextRun).toLocaleString()+'</div>';
+    html+='<div style="display:flex;gap:8px;margin:10px 0">';
+    html+='<button class="bt" style="font-size:12px;padding:6px 14px;background:'+(d.enabled?'var(--e)':'var(--g)')+';color:white" onclick="toggleScheduler()">'+( d.enabled?'Pause':'Resume')+'</button>';
+    html+='<button class="bt" style="font-size:12px;padding:6px 14px;background:var(--p);color:white" onclick="triggerScheduler()">Send Now</button>';
+    html+='<button class="bt" style="font-size:12px;padding:6px 14px;background:var(--t2);color:white" onclick="previewScheduler()">Preview Next</button>';
+    html+='</div>';
+    if(d.recentRuns&&d.recentRuns.length>0){
+      html+='<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:600;color:var(--t1)">Recent Runs ('+d.recentRuns.length+')</summary><table class="tb" style="margin-top:6px"><tr><th>Date</th><th>Assignment</th><th>Manual?</th></tr>';
+      d.recentRuns.reverse().forEach(function(r){
+        html+='<tr><td>'+r.date+'</td><td><a href="'+r.url+'" target="_blank" style="color:var(--p)">'+r.assignmentId+'</a></td><td>'+(r.manual?'Yes':'Auto')+'</td></tr>';
+      });
+      html+='</table></details>';
+    }
+    if(d.recentErrors&&d.recentErrors.length>0){
+      html+='<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:600;color:var(--e)">Recent Errors ('+d.recentErrors.length+')</summary>';
+      d.recentErrors.reverse().forEach(function(e){
+        html+='<div style="padding:4px 8px;margin:4px 0;background:#fee2e2;border-radius:4px;font-size:0.85em">'+e.date+': '+e.error+'</div>';
+      });
+      html+='</details>';
+    }
+    p.innerHTML=html;
+  }).catch(function(e){
+    var p=document.getElementById('schedulerPanel');
+    if(p)p.innerHTML='<h3>🤖 Autonomous Scheduler</h3><div class="ds" style="color:var(--e)">Error: '+e.message+'</div>';
+  });
+}
+function toggleScheduler(){
+  fetch('/api/scheduler/toggle',{method:'POST'}).then(function(){fetchSchedulerStatus();});
+}
+function triggerScheduler(){
+  if(!confirm('Send a new competition prep assignment RIGHT NOW?'))return;
+  var p=document.getElementById('schedulerPanel');
+  if(p)p.innerHTML+='<div class="ds" style="color:var(--p)">Sending...</div>';
+  fetch('/api/scheduler/trigger',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+    if(d.success){alert('Assignment sent! ID: '+d.assignmentId);fetchSchedulerStatus();fetchCompPrepResults('riyansh');}
+    else alert('Error: '+d.error);
+  }).catch(function(e){alert('Error: '+e.message);});
+}
+function previewScheduler(){
+  fetch('/api/scheduler/preview').then(function(r){return r.json();}).then(function(d){
+    var msg='Target Difficulty: '+d.targetDifficulty+'\n\n';
+    d.questions.forEach(function(q){msg+='Q'+q.n+' ['+q.topic+' - '+q.difficulty+']: '+q.text+'\nAnswer: '+q.answer+'\n\n';});
+    alert(msg);
+  }).catch(function(e){alert('Error: '+e.message);});
+}
+
 // === AI SETTINGS (Admin) ===
 function renderAdminSettings(el){
   var providerBtns=['claude','gemini'].map(function(p){
