@@ -1680,8 +1680,8 @@ function getNextRunTime() {
   const dayOfWeek = hkt.getDay(); // 0=Sun
   const hour = hkt.getHours();
 
-  // Target days: Mon=1, Wed=3, Fri=5
-  const targets = [1, 3, 5];
+  // Target days: Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6
+  const targets = [1, 2, 3, 4, 5, 6];
   let daysAhead = null;
 
   for (let d = 0; d <= 7; d++) {
@@ -1710,23 +1710,42 @@ async function schedulerTick() {
     return;
   }
 
-  // Check if today is Mon/Wed/Fri and it's past 7am HKT
+  // Check if today is a scheduled day and it's past 7am HKT
+  // FULL SCHEDULE:
+  // Mon = Maths Competition Prep
+  // Tue = English Writing (Creative)
+  // Wed = Maths Competition Prep + Science Video
+  // Thu = English Writing (Structured)
+  // Fri = Maths Competition Prep
+  // Sat = Coding Lesson
+  // Sun = Weekly Progress Report
   const now = new Date();
   const hkt = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
   const dayOfWeek = hkt.getDay();
   const hour = hkt.getHours();
-  const targets = [1, 3, 5]; // Mon, Wed, Fri
 
-  if (!targets.includes(dayOfWeek)) {
+  // Determine what tasks run today
+  const todayTasks = [];
+  if ([1, 3, 5].includes(dayOfWeek)) todayTasks.push('maths-prep');     // Mon, Wed, Fri
+  if ([2, 4].includes(dayOfWeek)) todayTasks.push('english-writing');    // Tue, Thu
+  if (dayOfWeek === 3) todayTasks.push('science-video');                 // Wed
+  if (dayOfWeek === 6) todayTasks.push('coding-lesson');                 // Sat
+  if (dayOfWeek === 0) todayTasks.push('weekly-report');                 // Sun
+
+  if (todayTasks.length === 0) {
     schedulerStatus = 'idle (not a scheduled day)';
     return;
   }
 
-  // Check if we already ran today
   const today = hkt.getFullYear() + '-' + String(hkt.getMonth() + 1).padStart(2, '0') + '-' + String(hkt.getDate()).padStart(2, '0');
   const log = readSchedulerLog();
-  const ranToday = log.runs.some(r => r.date === today && r.success);
-  if (ranToday) {
+
+  // Filter out tasks that already ran today
+  const pendingTasks = todayTasks.filter(taskType => {
+    return !log.runs.some(r => r.date === today && r.success && (r.type === taskType || (!r.type && taskType === 'maths-prep')));
+  });
+
+  if (pendingTasks.length === 0) {
     schedulerStatus = 'done-for-today';
     return;
   }
@@ -1738,28 +1757,54 @@ async function schedulerTick() {
 
   // Time to run!
   schedulerStatus = 'running';
-  console.log('[Scheduler] Running assignment generation for', today);
 
-  try {
-    const result = await createAndSendAssignment();
-    appendSchedulerLog({
-      date: today,
-      time: new Date().toISOString(),
-      success: true,
-      assignmentId: result.assignmentId,
-      url: result.url
-    });
-    schedulerStatus = 'done-for-today';
-    console.log('[Scheduler] Successfully completed for', today);
-  } catch (e) {
-    console.error('[Scheduler] Error:', e.message);
-    appendSchedulerError({
-      date: today,
-      time: new Date().toISOString(),
-      error: e.message
-    });
-    schedulerStatus = 'error: ' + e.message;
+  for (const taskType of pendingTasks) {
+    try {
+      let result;
+      switch (taskType) {
+        case 'maths-prep':
+          console.log('[Scheduler] Running maths assignment for', today);
+          result = await createAndSendAssignment();
+          appendSchedulerLog({ date: today, time: new Date().toISOString(), success: true, type: 'maths-prep', assignmentId: result.assignmentId, url: result.url });
+          console.log('[Scheduler] Maths prep completed');
+          break;
+
+        case 'english-writing':
+          console.log('[Scheduler] Running English writing prompt for', today);
+          result = await createAndSendWritingPrompt();
+          appendSchedulerLog({ date: today, time: new Date().toISOString(), success: true, type: 'english-writing', promptTitle: result.promptTitle, level: result.level });
+          console.log('[Scheduler] Writing prompt completed');
+          break;
+
+        case 'science-video':
+          console.log('[Scheduler] Running science video assignment for', today);
+          result = await createAndSendScienceEmail();
+          appendSchedulerLog({ date: today, time: new Date().toISOString(), success: true, type: 'science-video', lessonTitle: result.lessonTitle, topic: result.topic });
+          console.log('[Scheduler] Science video completed');
+          break;
+
+        case 'coding-lesson':
+          console.log('[Scheduler] Running coding lesson for', today);
+          result = await createAndSendCodingEmail();
+          appendSchedulerLog({ date: today, time: new Date().toISOString(), success: true, type: 'coding-lesson', missionName: result.missionName, stage: result.stage });
+          console.log('[Scheduler] Coding lesson completed');
+          break;
+
+        case 'weekly-report':
+          console.log('[Scheduler] Running weekly progress report for', today);
+          result = await createAndSendWeeklyReport();
+          appendSchedulerLog({ date: today, time: new Date().toISOString(), success: true, type: 'weekly-report', overallPct: result.overallPct });
+          console.log('[Scheduler] Weekly report completed');
+          break;
+      }
+    } catch (e) {
+      console.error('[Scheduler] Error in', taskType + ':', e.message);
+      appendSchedulerError({ date: today, time: new Date().toISOString(), type: taskType, error: e.message });
+      schedulerStatus = 'error: ' + taskType + ' — ' + e.message;
+    }
   }
+
+  schedulerStatus = 'done-for-today';
 }
 
 // Check every 15 minutes
@@ -1768,7 +1813,741 @@ setInterval(schedulerTick, SCHEDULER_INTERVAL);
 // Also run once on startup (after 10 sec delay to let everything initialise)
 setTimeout(schedulerTick, 10000);
 schedulerStatus = 'active';
-console.log('[Scheduler] Autonomous scheduler started. Checks every 15 minutes for Mon/Wed/Fri 7am HKT.');
+console.log('[Scheduler] Autonomous scheduler started. Checks every 15 minutes.');
+console.log('[Scheduler] Mon/Wed/Fri: Maths | Tue/Thu: Writing | Wed: Science | Sat: Coding | Sun: Report');
+
+// =====================================================================
+// === AUTONOMOUS ENGLISH WRITING PROMPT SYSTEM ===
+// Runs on Tue/Thu at 7am HKT via the same scheduler.
+// Reads Riyansh's performance data to adapt the prompt difficulty.
+// Sends email via Resend (same as maths assignments).
+// =====================================================================
+
+const WRITING_PROMPTS = {
+  creative: [
+    {
+      title: 'The Midnight Market',
+      prompt: 'Imagine you discover a secret market that only appears at midnight in your neighbourhood. The stalls sell things you can\'t find anywhere else — bottles of captured dreams, maps to hidden places, or boxes that whisper secrets. Write a story about your visit to the Midnight Market. What do you find? Who do you meet? What happens when you try to buy something unusual?'
+    },
+    {
+      title: 'The Door in the Tree',
+      prompt: 'While exploring a park, you find a tiny door carved into the trunk of an old tree. When you open it, you discover a world inside. Write a story about what you find on the other side. Who lives there? How is it different from our world? What adventure do you go on?'
+    },
+    {
+      title: 'The Last Day of Summer',
+      prompt: 'It is the very last day of summer holidays. You want to make it the most memorable day ever. Write a diary entry describing your perfect last day — where you go, who you are with, and why this day matters to you.'
+    },
+    {
+      title: 'The Robot Who Wanted a Pet',
+      prompt: 'In a city where everyone has a robot helper, one robot decides it wants a pet of its own. But robots don\'t usually have pets! Write a story about this robot\'s search for the perfect pet. What kind of animal does it choose? What funny problems come up?'
+    },
+    {
+      title: 'Lost in the Supermarket',
+      prompt: 'You are in a huge supermarket when the lights go out. When they come back on, everything has changed — the aisles are rearranged, the products are strange, and you seem to be the only person left. Write a story about what happens next.'
+    },
+    {
+      title: 'The Message in a Bottle',
+      prompt: 'While at the beach, you find a glass bottle with a rolled-up letter inside. The message is old and faded, but you can just make out the words. Write a story about the message, who wrote it, and the adventure it leads you on.'
+    },
+    {
+      title: 'My Superpower for a Day',
+      prompt: 'You wake up one morning and discover you have a superpower — but it will only last 24 hours. Write a story about your day. What power do you have? How do you use it? What happens when it starts to fade?'
+    },
+    {
+      title: 'The Talking Animal',
+      prompt: 'One morning, your pet (or an animal you meet) starts talking to you in perfect English. No one else can hear it. Write a story about your conversation and the adventure you go on together.'
+    }
+  ],
+  structured: [
+    {
+      title: 'Should Children Have Homework?',
+      prompt: 'Some people think homework helps children learn, while others believe it takes away time for play and rest. Write a persuasive essay arguing YOUR opinion. Give at least two strong reasons to support your view, and explain why someone who disagrees might be wrong.'
+    },
+    {
+      title: 'A Letter to the Head Teacher',
+      prompt: 'Your school is thinking about making one big change (e.g., longer lunch breaks, no uniforms, more PE lessons, or a school garden). Write a formal letter to your Head Teacher suggesting a change you would like. Explain why it would benefit students and how it could work.'
+    },
+    {
+      title: 'My Favourite Place - A Travel Report',
+      prompt: 'Think of a place you have visited or would like to visit (a city, a park, a country). Write an informational report about this place. Include: where it is, what you can see and do there, why it is special, and who would enjoy visiting.'
+    },
+    {
+      title: 'How to Make the Perfect Sandwich',
+      prompt: 'Write a set of clear instructions explaining how to make your favourite sandwich (or any simple recipe). Include an introduction explaining why this sandwich is great, a list of ingredients, step-by-step instructions, and a top tip for making it even better.'
+    },
+    {
+      title: 'Should Plastic Be Banned?',
+      prompt: 'Plastic is useful but causes pollution. Write a balanced discussion giving arguments FOR and AGAINST banning single-use plastic. End with your own conclusion — what do YOU think should happen?'
+    },
+    {
+      title: 'A Newspaper Report',
+      prompt: 'Something unusual has happened at your school (a rare animal was found in the playground, a mysterious package was delivered, or the school broke a world record). Write a newspaper report about the event. Include a headline, who/what/where/when/why, and quotes from witnesses.'
+    },
+    {
+      title: 'Book Review',
+      prompt: 'Think of a book you have read recently (or a story you know well). Write a review of it. Include: the title and author, a brief summary (without spoilers!), what you liked and didn\'t like, and who you would recommend it to.'
+    },
+    {
+      title: 'An Application Letter',
+      prompt: 'Your school is looking for a student to be the new "Reading Ambassador" (or Sports Captain, Eco Leader, etc.). Write a formal letter applying for the role. Explain why you are the right person, what skills you have, and what you would do in the role.'
+    }
+  ]
+};
+
+const POWER_WORDS_BANK = [
+  { word: 'glimmering', meaning: 'shining with a soft, unsteady light' },
+  { word: 'peculiar', meaning: 'strange or unusual' },
+  { word: 'whispered', meaning: 'spoke very quietly' },
+  { word: 'cautiously', meaning: 'carefully, to avoid danger' },
+  { word: 'vanished', meaning: 'disappeared suddenly' },
+  { word: 'magnificent', meaning: 'extremely beautiful or impressive' },
+  { word: 'reluctantly', meaning: 'unwillingly, not wanting to do something' },
+  { word: 'ancient', meaning: 'very old, from long ago' },
+  { word: 'enormous', meaning: 'very large in size' },
+  { word: 'trembling', meaning: 'shaking slightly from fear or excitement' },
+  { word: 'gradually', meaning: 'slowly, step by step' },
+  { word: 'essential', meaning: 'absolutely necessary' },
+  { word: 'furthermore', meaning: 'in addition to what has been said' },
+  { word: 'significant', meaning: 'important or large enough to matter' },
+  { word: 'demonstrate', meaning: 'to show or prove something clearly' },
+  { word: 'frequently', meaning: 'happening often' },
+  { word: 'consequences', meaning: 'results or effects of an action' },
+  { word: 'perspective', meaning: 'a point of view or way of thinking' },
+  { word: 'mysterious', meaning: 'difficult to understand or explain' },
+  { word: 'swiftly', meaning: 'quickly and smoothly' }
+];
+
+// Pick 5 random power words, preferring creative/structured vocab as appropriate
+function pickPowerWords(type) {
+  const pool = type === 'creative'
+    ? POWER_WORDS_BANK.filter(w => !['furthermore', 'significant', 'demonstrate', 'consequences', 'essential', 'frequently'].includes(w.word))
+    : POWER_WORDS_BANK.filter(w => !['glimmering', 'whispered', 'trembling', 'vanished', 'mysterious', 'swiftly'].includes(w.word));
+  const shuffled = pool.sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, 5);
+}
+
+// Pick a prompt that hasn't been used recently (check scheduler log)
+function pickWritingPrompt(type) {
+  const log = readSchedulerLog();
+  const recentTitles = (log.runs || [])
+    .filter(r => r.type === 'english-writing')
+    .slice(-6)
+    .map(r => r.promptTitle);
+
+  const pool = WRITING_PROMPTS[type] || WRITING_PROMPTS.creative;
+  // Prefer unused prompts
+  const unused = pool.filter(p => !recentTitles.includes(p.title));
+  const available = unused.length > 0 ? unused : pool;
+  return available[Math.floor(Math.random() * available.length)];
+}
+
+// Determine writing level from performance data
+function getWritingLevel(perfData) {
+  if (!perfData) return { level: 2, punctuationWeak: true, readingWeak: false, writingsCount: 0 };
+
+  const progress = perfData.progress || {};
+  const english = progress.english || {};
+
+  // Check topicLevels
+  let level = 2; // default
+  if (english.writing && english.writing.lv) {
+    level = Math.max(1, Math.min(5, english.writing.lv));
+  } else {
+    // Infer from accuracy
+    const writingTopic = english.writing || {};
+    const correct = writingTopic.c || 0;
+    const total = writingTopic.t || 0;
+    if (total > 0) {
+      const pct = correct / total;
+      if (pct >= 0.8) level = 4;
+      else if (pct >= 0.6) level = 3;
+      else if (pct >= 0.4) level = 2;
+      else level = 1;
+    }
+  }
+
+  // Check punctuation weakness
+  const punct = english.punctuation || {};
+  const punctTotal = punct.t || 0;
+  const punctCorrect = punct.c || 0;
+  const punctuationWeak = punctTotal === 0 || (punctCorrect / punctTotal) < 0.6;
+
+  // Check reading weakness
+  const reading = english.reading || {};
+  const readTotal = reading.t || 0;
+  const readCorrect = reading.c || 0;
+  const readingWeak = readTotal === 0 || (readCorrect / readTotal) < 0.6;
+
+  // Count writings
+  const writingsCount = (perfData.progress && perfData.progress.wr) ? perfData.progress.wr.length : 0;
+
+  return { level, punctuationWeak, readingWeak, writingsCount };
+}
+
+// Build the writing prompt email HTML
+function buildWritingEmail(promptData, levelInfo, type, today) {
+  const { level, punctuationWeak, readingWeak } = levelInfo;
+  const powerWords = pickPowerWords(type);
+  const typeLabel = type === 'creative' ? 'Creative Writing' : 'Structured Writing';
+  const portalUrl = 'https://vivekkohli.github.io/learning-portal/';
+
+  // Word count by level
+  const wordCounts = { 1: '100–150', 2: '100–150', 3: '150–200', 4: '200–250', 5: '200–300' };
+  const wordTarget = wordCounts[level] || '150–200';
+
+  // Scaffolding varies by level
+  let scaffoldingHtml = '';
+
+  if (level <= 2) {
+    // Heavy scaffolding: sentence starters + vocabulary bank + example paragraph
+    scaffoldingHtml = `
+      <h3 style="color:#A23B72;">🏗️ Sentence Starters (use these to help!)</h3>
+      ${type === 'creative' ? `
+      <ul style="margin:8px 0;">
+        <li><em>One ${['evening', 'morning', 'night'][Math.floor(Math.random()*3)]}, I discovered something extraordinary...</em></li>
+        <li><em>At first, I couldn't believe my eyes because...</em></li>
+        <li><em>The most surprising thing was...</em></li>
+        <li><em>In the end, I learned that...</em></li>
+      </ul>` : `
+      <ul style="margin:8px 0;">
+        <li><em>In my opinion, I believe that...</em></li>
+        <li><em>One important reason is...</em></li>
+        <li><em>On the other hand, some people think...</em></li>
+        <li><em>In conclusion, I think that...</em></li>
+      </ul>`}
+      <hr style="border:1px solid #eee;">`;
+  }
+
+  if (level >= 3 && level <= 4) {
+    // Paragraph planning template
+    scaffoldingHtml = `
+      <h3 style="color:#A23B72;">🗺️ Plan Your Writing</h3>
+      <p>Before you start, jot down a quick plan:</p>
+      <table style="width:100%;border-collapse:collapse;margin:10px 0;">
+        <tr style="background:#f9f9f9;">
+          <td style="padding:8px;border:1px solid #ddd;width:30%;"><strong>${type === 'creative' ? 'Opening' : 'Introduction'}</strong></td>
+          <td style="padding:8px;border:1px solid #ddd;">${type === 'creative' ? 'Set the scene. Where are you? What time is it? (2–3 sentences)' : 'Introduce the topic. What is your main point? (2–3 sentences)'}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px;border:1px solid #ddd;"><strong>${type === 'creative' ? 'Middle' : 'Main Body'}</strong></td>
+          <td style="padding:8px;border:1px solid #ddd;">${type === 'creative' ? 'What happens? Use senses — sight, sound, smell. (4–6 sentences)' : 'Give 2–3 reasons or points. Use examples. (4–6 sentences)'}</td>
+        </tr>
+        <tr style="background:#f9f9f9;">
+          <td style="padding:8px;border:1px solid #ddd;"><strong>${type === 'creative' ? 'Ending' : 'Conclusion'}</strong></td>
+          <td style="padding:8px;border:1px solid #ddd;">${type === 'creative' ? 'How does it end? What do you take away? (2–3 sentences)' : 'Summarise your view. End with a strong final sentence. (2–3 sentences)'}</td>
+        </tr>
+      </table>
+      <hr style="border:1px solid #eee;">`;
+  }
+
+  // Level 4-5: self-editing checklist is the main scaffold (included below for all levels)
+
+  // Punctuation tips (if weak)
+  let punctuationTip = '';
+  if (punctuationWeak) {
+    punctuationTip = `
+      <p style="margin-top:5px;font-size:13px;color:#777;background:#fff8e1;padding:10px;border-radius:4px;">
+        <strong>💡 Punctuation Focus:</strong> Watch out for run-on sentences! If you join two ideas with just a comma, try using a full stop or connecting words like "and", "but", or "so" instead.<br>
+        <em>❌ I went to the shop, I bought some milk.</em><br>
+        <em>✅ I went to the shop. I bought some milk.</em><br>
+        <em>✅ I went to the shop and bought some milk.</em>
+      </p>`;
+  }
+
+  // Reading passage (if reading is weak, give a short inspiration passage for creative)
+  let readingInspiration = '';
+  if (readingWeak && type === 'creative') {
+    readingInspiration = `
+      <div style="background:#f0f7ff;padding:12px;border-left:4px solid #2E86AB;border-radius:4px;margin:10px 0;">
+        <strong>📖 Read this short passage first for inspiration:</strong><br><br>
+        <em>The old clock tower stood at the edge of town, half-hidden by ivy. Nobody went there anymore — or so everyone thought. But if you looked carefully at midnight, you might notice a faint golden light glowing from the top window, and if you listened closely, you might hear the softest sound of music drifting down through the cold night air.</em>
+      </div>`;
+  }
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#333;padding:20px;">
+      <h2 style="color:#2E86AB;">🖊️ English ${typeLabel} - ${today}</h2>
+      <p>Hi Riyansh!</p>
+      <p>${type === 'creative' ? 'Time for some creative writing! Let your imagination fly.' : 'Time to practise your formal writing skills. Think carefully about structure.'}</p>
+
+      ${readingInspiration}
+
+      <hr style="border:1px solid #eee;">
+
+      <h3 style="color:#A23B72;">✍️ Your Writing Prompt</h3>
+      <div style="background:#f0f7ff;padding:15px;border-left:4px solid #2E86AB;border-radius:4px;font-size:15px;">
+        <strong>${promptData.title}</strong><br><br>
+        ${promptData.prompt}
+      </div>
+
+      <p><strong>Word count target:</strong> ${wordTarget} words</p>
+
+      <hr style="border:1px solid #eee;">
+
+      ${scaffoldingHtml}
+
+      <h3 style="color:#A23B72;">⚡ 5 Power Words to Try</h3>
+      <p>Try to use at least <strong>3</strong> of these in your writing:</p>
+      <table style="width:100%;border-collapse:collapse;margin:10px 0;">
+        ${powerWords.map((pw, i) => `
+        <tr${i % 2 === 0 ? ' style="background:#fff3e0;"' : ''}>
+          <td style="padding:8px;border:1px solid #ddd;"><strong>${pw.word}</strong></td>
+          <td style="padding:8px;border:1px solid #ddd;">${pw.meaning}</td>
+        </tr>`).join('')}
+      </table>
+
+      <hr style="border:1px solid #eee;">
+
+      <h3 style="color:#A23B72;">✅ Before You Submit — Checklist</h3>
+      <table style="width:100%;border-collapse:collapse;margin:10px 0;">
+        <tr><td style="padding:6px;border:1px solid #ddd;">☐ Does every sentence start with a <strong>capital letter</strong>?</td></tr>
+        <tr style="background:#f9f9f9;"><td style="padding:6px;border:1px solid #ddd;">☐ Does every sentence end with a <strong>full stop, question mark, or exclamation mark</strong>?</td></tr>
+        <tr><td style="padding:6px;border:1px solid #ddd;">☐ Have you checked for <strong>run-on sentences</strong>? (If a sentence has more than 2 ideas, split it!)</td></tr>
+        <tr style="background:#f9f9f9;"><td style="padding:6px;border:1px solid #ddd;">☐ Have you used <strong>commas</strong> in lists and after introductory words? (e.g., "Suddenly, I saw...")</td></tr>
+        <tr><td style="padding:6px;border:1px solid #ddd;">☐ Did you use at least <strong>3 Power Words</strong>?</td></tr>
+        <tr style="background:#f9f9f9;"><td style="padding:6px;border:1px solid #ddd;">☐ Does your writing have a clear <strong>${type === 'creative' ? 'beginning, middle, and ending' : 'introduction, body, and conclusion'}</strong>?</td></tr>
+        <tr><td style="padding:6px;border:1px solid #ddd;">☐ Read your writing <strong>out loud</strong> — does it sound right?</td></tr>
+        ${level >= 4 ? '<tr style="background:#f9f9f9;"><td style="padding:6px;border:1px solid #ddd;">☐ Have you varied your <strong>sentence length</strong>? (Mix short and long sentences)</td></tr>' : ''}
+        ${level >= 5 ? '<tr><td style="padding:6px;border:1px solid #ddd;">☐ Read it as if YOU are the teacher — what mark would you give and why?</td></tr>' : ''}
+      </table>
+
+      ${punctuationTip}
+
+      <hr style="border:1px solid #eee;">
+
+      <h3 style="color:#A23B72;">📝 How to Submit</h3>
+      <p>Go to your portal and type your story in the Writing section:</p>
+      <p style="text-align:center;">
+        <a href="${portalUrl}" style="display:inline-block;background:#2E86AB;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">Open Learning Portal</a>
+      </p>
+      <p>${type === 'creative' ? 'Have fun with it — your imagination is your superpower! 🚀' : 'Take your time and plan before you write. Good structure = great writing! 📐'}</p>
+    </div>`;
+
+  return html;
+}
+
+// --- Create & Send English Writing Prompt ---
+async function createAndSendWritingPrompt() {
+  const username = 'riyansh';
+  const studentEmail = 'kohliriyansh575@gmail.com';
+  const parentEmail = 'vivekkohli81@gmail.com';
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Determine day type: Tue = creative, Thu = structured, Sat = creative (bonus)
+  const now = new Date();
+  const hkt = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
+  const dayOfWeek = hkt.getDay();
+  const type = (dayOfWeek === 4) ? 'structured' : 'creative'; // Thu=4 → structured, Tue/Sat → creative
+
+  console.log('[Writing] Generating', type, 'writing prompt for', today);
+
+  // Read performance data (directly from disk, no HTTP needed)
+  const perfData = readPerf(username);
+  const levelInfo = getWritingLevel(perfData);
+  console.log('[Writing] Level:', levelInfo.level, '| Punctuation weak:', levelInfo.punctuationWeak, '| Writings done:', levelInfo.writingsCount);
+
+  // Pick a prompt
+  const promptData = pickWritingPrompt(type);
+  console.log('[Writing] Selected prompt:', promptData.title);
+
+  // Build email
+  const htmlBody = buildWritingEmail(promptData, levelInfo, type, today);
+
+  const typeLabel = type === 'creative' ? 'Creative Writing' : 'Structured Writing';
+  const subject = 'English Writing - ' + today + ' - Level ' + levelInfo.level + ': ' + typeLabel + ' — ' + promptData.title;
+
+  // Send to student (CC parent via combined to)
+  const result = await sendResendEmail(
+    [studentEmail, parentEmail],
+    subject,
+    htmlBody
+  );
+  console.log('[Writing] Email sent:', result.id || 'ok');
+
+  return { type, promptTitle: promptData.title, level: levelInfo.level, emailSent: true };
+}
+
+// =====================================================================
+// === AUTONOMOUS SCIENCE VIDEO ASSIGNMENT (Wednesday) ===
+// =====================================================================
+
+const SCIENCE_LESSONS = [
+  // Biology
+  { topic: 'Biology', title: 'How Your Heart Works', videoUrl: 'https://www.youtube.com/watch?v=CWFyxn0qDEU', funFact: 'Your heart beats about 100,000 times every day — that is over 35 million times a year!', prediction: 'Before watching: How many chambers do you think the human heart has?', questions: ['What are the four chambers of the heart called?', 'What is the difference between arteries and veins?', 'Why does your heart beat faster when you exercise?'], activity: 'Place two fingers on the inside of your wrist to find your pulse. Count your heartbeats for 15 seconds and multiply by 4. That is your resting heart rate! Now do 20 star jumps and measure again. Write down both numbers.' },
+  { topic: 'Biology', title: 'How Plants Make Food', videoUrl: 'https://www.youtube.com/watch?v=UPBMG5EYydo', funFact: 'A large tree can release about 400 litres of water into the air in one day through its leaves!', prediction: 'Before watching: What do you think plants need to make their own food?', questions: ['What is photosynthesis?', 'What three things do plants need for photosynthesis?', 'What gas do plants release that humans need to breathe?'], activity: 'Take two small plants. Put one in a sunny spot and one in a dark cupboard. Water both the same. After 5 days, draw and compare them. What happened and why?' },
+  { topic: 'Biology', title: 'The Human Digestive System', videoUrl: 'https://www.youtube.com/watch?v=VwAoaJxGPJo', funFact: 'If you uncoiled your small intestine, it would be about 6 metres long — taller than a giraffe!', prediction: 'Before watching: How long do you think it takes food to travel through your whole body?', questions: ['What happens to food in your stomach?', 'What is the role of the small intestine?', 'Why is saliva important for digestion?'], activity: 'Draw the digestive system from memory after watching. Label at least 5 parts. Then eat a cracker very slowly — can you feel where each stage happens?' },
+  { topic: 'Biology', title: 'Animal Adaptations', videoUrl: 'https://www.youtube.com/watch?v=hrnXJOukNGc', funFact: 'The Arctic fox changes its fur colour from brown in summer to white in winter to blend in with the snow!', prediction: 'Before watching: Can you name an animal that has adapted to survive in an extreme environment?', questions: ['What is an adaptation?', 'Give two examples of structural adaptations.', 'How do behavioural adaptations help animals survive?'], activity: 'Choose an imaginary planet (very hot, very cold, underwater, or no gravity). Design an animal that could survive there. Draw it and label at least 3 adaptations.' },
+  // Chemistry
+  { topic: 'Chemistry', title: 'States of Matter', videoUrl: 'https://www.youtube.com/watch?v=wclY8F-UoLE', funFact: 'Glass is not actually a solid — it is an extremely slow-moving liquid! Very old windows are thicker at the bottom.', prediction: 'Before watching: Can you name the three states of matter?', questions: ['How are particles arranged differently in solids, liquids, and gases?', 'What is the process called when a liquid turns into a gas?', 'What happens to particles when you heat them?'], activity: 'Fill a glass with ice cubes (solid). Watch them melt into water (liquid). With an adult, boil some water and observe the steam (gas). You just watched all three states of matter!' },
+  { topic: 'Chemistry', title: 'Separating Mixtures', videoUrl: 'https://www.youtube.com/watch?v=gLHnp-n38ZQ', funFact: 'Sea water contains about 35 grams of salt per litre. If all the salt in the ocean was spread on land, it would cover everything in a layer 150 metres thick!', prediction: 'Before watching: If you mixed sand and salt together, how could you separate them again?', questions: ['What is filtration used to separate?', 'How does evaporation help separate dissolved substances?', 'What is the difference between a mixture and a compound?'], activity: 'Mix some salt into warm water until it dissolves. Pour a thin layer onto a plate and leave it on a windowsill. Check it after 2 days — you should find salt crystals!' },
+  // Physics
+  { topic: 'Physics', title: 'Forces and Motion', videoUrl: 'https://www.youtube.com/watch?v=IJWsrxQMoP8', funFact: 'In space, there is almost no friction or air resistance, so if you threw a ball it would keep going forever in a straight line!', prediction: 'Before watching: What do you think would happen if there were no friction on Earth?', questions: ['What is a force?', 'Name two contact forces and two non-contact forces.', 'How do balanced and unbalanced forces affect motion?'], activity: 'Slide a book across different surfaces (smooth table, carpet, sandpaper). Time how far it travels each time. Which surface has the most friction? Make a bar chart of your results.' },
+  { topic: 'Physics', title: 'Light and Shadows', videoUrl: 'https://www.youtube.com/watch?v=qdPsc5RGOBU', funFact: 'Light travels at 300,000 kilometres per second. It takes sunlight about 8 minutes to reach Earth!', prediction: 'Before watching: Why do you think shadows change size during the day?', questions: ['Does light travel in straight lines or curves?', 'What happens when light hits an opaque object?', 'Why are shadows longer in the morning and evening than at midday?'], activity: 'On a sunny day, go outside at three different times (morning, noon, afternoon). Trace your shadow with chalk each time. How does it change? Which is longest and why?' },
+  // Earth & Space
+  { topic: 'Earth & Space', title: 'The Water Cycle', videoUrl: 'https://www.youtube.com/watch?v=al-do-HGuIk', funFact: 'The water you drink today could contain molecules that dinosaurs drank 65 million years ago — water is constantly recycled!', prediction: 'Before watching: Where does rain come from?', questions: ['What are the four main stages of the water cycle?', 'What is the difference between evaporation and condensation?', 'Why is the water cycle important for life on Earth?'], activity: 'Put warm water in a bowl, cover it tightly with cling film, and place an ice cube on top. Watch droplets form underneath — you have made your own mini water cycle!' },
+  { topic: 'Earth & Space', title: 'Our Solar System', videoUrl: 'https://www.youtube.com/watch?v=libKVRa01L8', funFact: 'One day on Venus is longer than one year on Venus! It spins so slowly that it takes 243 Earth days to rotate once, but only 225 days to orbit the Sun.', prediction: 'Before watching: Can you name all 8 planets in order from the Sun?', questions: ['What is the difference between inner and outer planets?', 'Why is Earth the only planet known to support life?', 'What is the asteroid belt and where is it?'], activity: 'Create a scale model of the solar system using fruit. The Sun is a watermelon, Mercury is a peppercorn, Venus and Earth are grapes, Mars is a blueberry, Jupiter is a grapefruit, Saturn is an orange, Uranus and Neptune are plums. Lay them out and see the distances!' }
+];
+
+function pickScienceLesson() {
+  const log = readSchedulerLog();
+  const recentTitles = (log.runs || [])
+    .filter(r => r.type === 'science-video')
+    .slice(-8)
+    .map(r => r.lessonTitle);
+  const unused = SCIENCE_LESSONS.filter(l => !recentTitles.includes(l.title));
+  const pool = unused.length > 0 ? unused : SCIENCE_LESSONS;
+
+  // Prefer topics with lower accuracy
+  const perfData = readPerf('riyansh');
+  if (perfData && perfData.progress && perfData.progress.science) {
+    const sci = perfData.progress.science;
+    const topicMap = { 'Biology': 'biology', 'Chemistry': 'chemistry', 'Physics': 'physics', 'Earth & Space': 'earthSpace' };
+    // Score each lesson: lower accuracy topics get higher priority
+    const scored = pool.map(l => {
+      const key = topicMap[l.topic] || l.topic.toLowerCase();
+      const topicData = sci[key] || {};
+      const total = topicData.t || 0;
+      const correct = topicData.c || 0;
+      const accuracy = total > 0 ? correct / total : 0;
+      const priority = total === 0 ? 100 : (1 - accuracy) * 100; // unseen topics highest priority
+      return { lesson: l, priority };
+    });
+    scored.sort((a, b) => b.priority - a.priority);
+    return scored[0].lesson;
+  }
+
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+async function createAndSendScienceEmail() {
+  const studentEmail = 'kohliriyansh575@gmail.com';
+  const parentEmail = 'vivekkohli81@gmail.com';
+  const today = new Date().toISOString().slice(0, 10);
+  const lesson = pickScienceLesson();
+  const portalUrl = 'https://vivekkohli.github.io/learning-portal/';
+
+  console.log('[Science] Selected:', lesson.title, '(' + lesson.topic + ')');
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#333;padding:20px;">
+      <h2 style="color:#16a34a;">🔬 Science Explorer — ${lesson.topic}</h2>
+      <p>Hi Riyansh!</p>
+      <p>This week we are exploring <strong>${lesson.topic}</strong>. Get ready for something amazing!</p>
+
+      <div style="background:#f0fdf4;padding:12px;border-left:4px solid #16a34a;border-radius:4px;margin:10px 0;">
+        <strong>🤯 Did You Know?</strong><br>
+        ${lesson.funFact}
+      </div>
+
+      <hr style="border:1px solid #eee;">
+
+      <h3 style="color:#16a34a;">🎬 Today's Video: ${lesson.title}</h3>
+      <p style="text-align:center;">
+        <a href="${lesson.videoUrl}" style="display:inline-block;background:#ef4444;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">▶ Watch the Video</a>
+      </p>
+
+      <hr style="border:1px solid #eee;">
+
+      <h3 style="color:#16a34a;">🔮 Prediction (Before Watching)</h3>
+      <p style="background:#fefce8;padding:10px;border-radius:4px;">${lesson.prediction}</p>
+
+      <h3 style="color:#16a34a;">👀 Watch For (Answer These After)</h3>
+      <ol>
+        ${lesson.questions.map(q => '<li style="margin-bottom:8px;">' + q + '</li>').join('')}
+      </ol>
+
+      <hr style="border:1px solid #eee;">
+
+      <h3 style="color:#16a34a;">🧪 Hands-On Activity</h3>
+      <p style="background:#f0f7ff;padding:12px;border-radius:4px;">${lesson.activity}</p>
+
+      <hr style="border:1px solid #eee;">
+
+      <p style="text-align:center;">
+        <a href="${portalUrl}" style="display:inline-block;background:#2E86AB;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">Open Learning Portal</a>
+      </p>
+      <p>Enjoy exploring! Science is everywhere around you. 🌍</p>
+    </div>`;
+
+  const subject = 'Science Explorer - ' + lesson.topic + ': ' + lesson.title + ' - ' + today;
+  const result = await sendResendEmail([studentEmail, parentEmail], subject, html);
+  console.log('[Science] Email sent:', result.id || 'ok');
+  return { lessonTitle: lesson.title, topic: lesson.topic, emailSent: true };
+}
+
+// =====================================================================
+// === AUTONOMOUS CODING LESSON (Saturday) ===
+// =====================================================================
+
+// Stage progression: week count from 12 May 2026
+function getCodingStage() {
+  const startDate = new Date('2026-05-12');
+  const now = new Date();
+  const weekNum = Math.floor((now - startDate) / (7 * 24 * 60 * 60 * 1000)) + 1;
+
+  // Check if maths accuracy is low (slow down if struggling)
+  const perfData = readPerf('riyansh');
+  let slowDown = false;
+  if (perfData && perfData.progress && perfData.progress.maths) {
+    const maths = perfData.progress.maths;
+    let totalC = 0, totalT = 0;
+    Object.values(maths).forEach(t => { totalC += (t.c || 0); totalT += (t.t || 0); });
+    if (totalT > 0 && (totalC / totalT) < 0.4) slowDown = true;
+  }
+
+  const adjustedWeek = slowDown ? Math.floor(weekNum * 0.75) : weekNum;
+
+  if (adjustedWeek <= 3) return { stage: 'Scratch Basics', stageNum: 1, week: adjustedWeek };
+  if (adjustedWeek <= 6) return { stage: 'Scratch Games', stageNum: 2, week: adjustedWeek - 3 };
+  if (adjustedWeek <= 9) return { stage: 'HTML & CSS', stageNum: 3, week: adjustedWeek - 6 };
+  if (adjustedWeek <= 12) return { stage: 'JavaScript Basics', stageNum: 4, week: adjustedWeek - 9 };
+  return { stage: 'JavaScript Projects', stageNum: 5, week: adjustedWeek - 12 };
+}
+
+const CODING_MISSIONS = {
+  'Scratch Basics': [
+    { mission: 'Operation: First Sprite', brief: 'Create a Scratch project with a character that moves left and right using arrow keys. Make it say "Hello!" when you click on it.', steps: ['Open Scratch at scratch.mit.edu and create a new project.', 'Choose a sprite (character) you like from the library.', 'Add blocks: "when right arrow key pressed → change x by 10" and "when left arrow key pressed → change x by -10".', 'Add "when this sprite clicked → say Hello! for 2 seconds".', 'Test it! Press the green flag and try the arrow keys.'], concept: 'Events & Motion: In coding, we use "events" (like pressing a key) to trigger "actions" (like moving). This is how all games work!', bonus: 'Add a cool background and make the sprite also move up and down with arrow keys.', resource: 'https://scratch.mit.edu' },
+    { mission: 'Operation: Costume Change', brief: 'Create a sprite that changes its costume (appearance) when you press the space bar. Make it look like it is animating!', steps: ['Create a new Scratch project and choose a sprite with multiple costumes.', 'Go to the Costumes tab to see all available looks.', 'Add: "when space key pressed → next costume".', 'Add: "when green flag clicked → forever: wait 0.5 seconds, next costume" for auto-animation.', 'Test both — manual and automatic costume switching!'], concept: 'Loops & Animation: The "forever" block is a LOOP — it repeats the same action over and over. All animations in games use loops!', bonus: 'Add sound effects that play each time the costume changes.', resource: 'https://scratch.mit.edu' },
+    { mission: 'Operation: Sound Master', brief: 'Create a musical instrument in Scratch! Different keys play different sounds.', steps: ['Create a new project and pick a music-themed backdrop.', 'Add the "Music" extension from the bottom-left + button.', 'Create blocks: "when [a] key pressed → play note 60", "when [s] key pressed → play note 64", etc.', 'Use at least 5 different keys for 5 different notes.', 'Add a sprite that dances (changes costume) when any key is pressed.'], concept: 'Input & Output: Your keyboard INPUTS trigger sound and visual OUTPUTS. Every program follows this pattern: input → process → output!', bonus: 'Record your own sounds and use them instead of notes. Can you play a simple tune?', resource: 'https://scratch.mit.edu' }
+  ],
+  'Scratch Games': [
+    { mission: 'Operation: Maze Runner', brief: 'Build a maze game! The player navigates a character through a maze you draw. If they touch the walls, they go back to the start.', steps: ['Draw a maze as your backdrop using the paint editor. Use thick lines!', 'Make a small sprite as the player and position it at the start.', 'Add arrow-key movement (change x and y by 5).', 'Add: "if touching [wall colour] → go to x: [start] y: [start]".', 'Add a goal sprite — "if touching [goal] → say You win!"'], concept: 'Collision Detection: Games check if objects are touching each other every moment. This "if touching" check runs inside a loop — happening 30+ times per second!', bonus: 'Add a timer so the player can try to beat their best time. Add multiple levels!', resource: 'https://scratch.mit.edu' },
+    { mission: 'Operation: Catch the Stars', brief: 'Build a game where stars fall from the sky and the player catches them in a basket. Score points for each catch!', steps: ['Create a basket sprite controlled by mouse x-position (glide to mouse).', 'Create a star sprite that starts at a random x position at the top.', 'Make the star glide down. If it reaches the bottom, hide it and restart at top.', 'Add: "if touching basket → change score by 1, hide, go to random top position, show".', 'Add a score variable and display it on screen.'], concept: 'Variables: A "variable" is like a scoreboard — it stores a number that can change. Score, lives, and level are all variables in real games!', bonus: 'Add bombs that fall too — if you catch a bomb, lose a life! Game over at 0 lives.', resource: 'https://scratch.mit.edu' }
+  ],
+  'HTML & CSS': [
+    { mission: 'Operation: My First Website', brief: 'Create your very first web page! It should have a heading, a paragraph about yourself, and a photo or image.', steps: ['Open a text editor (Notepad or VS Code).', 'Type: <!DOCTYPE html><html><head><title>My Page</title></head><body></body></html>', 'Inside <body>, add <h1>Hello, I am Riyansh!</h1>', 'Add <p>I am 10 years old and I live in Hong Kong.</p>', 'Save as index.html and open it in your browser!'], concept: 'HTML Tags: HTML uses "tags" like <h1> and <p> to tell the browser what each piece of content IS. Tags come in pairs: <h1>...</h1>. The browser reads these tags and displays the content accordingly.', bonus: 'Add an <img> tag with a photo, and a list of your hobbies using <ul> and <li>.', resource: 'https://www.w3schools.com/html/html_intro.asp' },
+    { mission: 'Operation: Style Agent', brief: 'Make your website look amazing with CSS! Change colours, fonts, and sizes to create your own design.', steps: ['Open your index.html file from last week.', 'Inside <head>, add: <style> body { font-family: Arial; background-color: #f0f0f0; } </style>', 'Style your heading: h1 { color: blue; text-align: center; }', 'Style your paragraph: p { font-size: 18px; color: #333; }', 'Try changing colours and see what happens!'], concept: 'CSS Selectors: CSS targets HTML elements by their tag name (h1, p), class (.myclass), or id (#myid). It is like giving instructions: "All headings should be blue and centered."', bonus: 'Add a coloured border around your content using: border: 2px solid blue; padding: 20px;', resource: 'https://www.w3schools.com/css/css_intro.asp' }
+  ],
+  'JavaScript Basics': [
+    { mission: 'Operation: Alert & Prompt', brief: 'Make a web page that talks to the user! Ask their name and greet them with a personalised message.', steps: ['Create a new HTML file with a basic structure.', 'Add a <script> tag inside <body>.', 'Type: let name = prompt("What is your name?");', 'Then: alert("Hello, " + name + "! Welcome to my page!");', 'Save and open — it will ask for your name and greet you!'], concept: 'Variables in JS: A "variable" (let name = ...) stores data. Think of it as a labelled box — you put a value in and can use it later. The + operator joins text together.', bonus: 'Ask for their age too, calculate their birth year, and display it!', resource: 'https://www.w3schools.com/js/js_intro.asp' },
+    { mission: 'Operation: Click Counter', brief: 'Build a web page with a button that counts how many times it has been clicked. Display the count on screen.', steps: ['Create an HTML file with: <h1 id="counter">0</h1> and <button onclick="addOne()">Click Me!</button>', 'Add a <script> tag.', 'Type: let count = 0;', 'Create the function: function addOne() { count++; document.getElementById("counter").textContent = count; }', 'Save and open — click the button and watch the number grow!'], concept: 'Functions: A function is a reusable block of code with a name. You "call" it when needed (like when a button is clicked). Functions are the building blocks of all programs.', bonus: 'Add a "Reset" button that sets count back to 0. Add CSS to make it look like a real app!', resource: 'https://www.w3schools.com/js/js_functions.asp' }
+  ],
+  'JavaScript Projects': [
+    { mission: 'Operation: Quiz Builder', brief: 'Build your own quiz app! Display questions one at a time, check answers, and show a final score.', steps: ['Create an array of question objects: [{q: "What is 2+2?", a: "4"}, ...]', 'Display the first question in an HTML element.', 'Add an input field and a "Submit" button.', 'Check if the answer matches, update the score, and show the next question.', 'After all questions, display: "You scored X out of Y!"'], concept: 'Arrays & Objects: Arrays store lists ([1,2,3]) and Objects store key-value pairs ({name: "Riyansh"}). Together they can model any data — quiz questions, game characters, or student records!', bonus: 'Add a timer for each question. Show which questions were wrong at the end with the correct answers.', resource: 'https://www.w3schools.com/js/js_arrays.asp' }
+  ]
+};
+
+async function createAndSendCodingEmail() {
+  const studentEmail = 'kohliriyansh575@gmail.com';
+  const parentEmail = 'vivekkohli81@gmail.com';
+  const today = new Date().toISOString().slice(0, 10);
+  const stageInfo = getCodingStage();
+
+  const missions = CODING_MISSIONS[stageInfo.stage] || CODING_MISSIONS['Scratch Basics'];
+  const log = readSchedulerLog();
+  const recentMissions = (log.runs || [])
+    .filter(r => r.type === 'coding-lesson')
+    .slice(-5)
+    .map(r => r.missionName);
+  const unused = missions.filter(m => !recentMissions.includes(m.mission));
+  const missionPool = unused.length > 0 ? unused : missions;
+  const mission = missionPool[Math.floor(Math.random() * missionPool.length)];
+
+  console.log('[Coding] Stage:', stageInfo.stage, '| Mission:', mission.mission);
+
+  const diffStars = { 1: '⭐', 2: '⭐⭐', 3: '⭐⭐⭐', 4: '⭐⭐⭐⭐', 5: '⭐⭐⭐⭐⭐' };
+  const difficulty = diffStars[stageInfo.stageNum] || '⭐⭐';
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#333;padding:20px;">
+      <h2 style="color:#7c3aed;">🕹️ CODING SATURDAY — Mission Briefing</h2>
+      <div style="background:#f5f3ff;padding:15px;border-left:4px solid #7c3aed;border-radius:4px;">
+        <p style="margin:0;font-size:13px;color:#6b7280;">CLASSIFIED — FOR AGENT RIYANSH ONLY</p>
+        <p style="margin:5px 0 0;font-size:13px;">Stage: <strong>${stageInfo.stage}</strong> | Difficulty: ${difficulty}</p>
+      </div>
+
+      <p style="margin-top:15px;">Agent Riyansh, your mission this week...</p>
+
+      <h3 style="color:#7c3aed;">🎯 ${mission.mission}</h3>
+      <p style="background:#fefce8;padding:12px;border-radius:4px;">${mission.brief}</p>
+
+      <h3 style="color:#7c3aed;">📋 Steps</h3>
+      <ol>
+        ${mission.steps.map(s => '<li style="margin-bottom:8px;">' + s + '</li>').join('')}
+      </ol>
+
+      <h3 style="color:#7c3aed;">💡 Key Concept</h3>
+      <p style="background:#f0f7ff;padding:12px;border-left:4px solid #2E86AB;border-radius:4px;">${mission.concept}</p>
+
+      <hr style="border:1px solid #eee;">
+
+      <h3 style="color:#7c3aed;">🌟 Bonus Challenge</h3>
+      <p style="background:#fef2f2;padding:12px;border-radius:4px;">${mission.bonus}</p>
+
+      <h3 style="color:#7c3aed;">🔗 Resource</h3>
+      <p><a href="${mission.resource}" style="color:#7c3aed;">${mission.resource}</a></p>
+
+      <hr style="border:1px solid #eee;">
+      <p>Good luck, Agent! Report back when your mission is complete. 🚀</p>
+    </div>`;
+
+  const subject = 'Coding Saturday - ' + stageInfo.stage + ' - ' + mission.mission + ' - ' + today;
+  const result = await sendResendEmail([studentEmail, parentEmail], subject, html);
+  console.log('[Coding] Email sent:', result.id || 'ok');
+  return { missionName: mission.mission, stage: stageInfo.stage, emailSent: true };
+}
+
+// =====================================================================
+// === AUTONOMOUS WEEKLY PROGRESS REPORT (Sunday) ===
+// =====================================================================
+
+async function createAndSendWeeklyReport() {
+  const parentEmail = 'vivekkohli81@gmail.com';
+  const studentEmail = 'kohliriyansh575@gmail.com';
+  const today = new Date().toISOString().slice(0, 10);
+  const portalUrl = 'https://learningportal-production.up.railway.app/';
+
+  const perfData = readPerf('riyansh');
+
+  if (!perfData) {
+    // No data at all
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#333;padding:20px;">
+        <h2 style="color:#4f46e5;">📊 Weekly Progress Report — ${today}</h2>
+        <p>Hi Vivek,</p>
+        <p>Riyansh hasn't used the learning portal this week yet. Please encourage him to complete some quizzes and writing activities!</p>
+        <p><a href="${portalUrl}" style="color:#4f46e5;">Open Learning Portal</a></p>
+      </div>`;
+    const result = await sendResendEmail(parentEmail, 'Weekly Report - ' + today + ' - No activity this week', html);
+    return { hasData: false, emailSent: true };
+  }
+
+  const progress = perfData.progress || {};
+
+  // Calculate overall stats
+  let totalCorrect = 0, totalAttempts = 0;
+  const subjectStats = {};
+  ['english', 'maths', 'science'].forEach(subj => {
+    const topics = progress[subj] || {};
+    let sC = 0, sT = 0;
+    const topicDetails = [];
+    Object.keys(topics).forEach(t => {
+      if (t === 'lv') return;
+      const d = topics[t];
+      const c = d.c || 0, total = d.t || 0;
+      sC += c; sT += total;
+      if (total > 0) {
+        topicDetails.push({ topic: t, correct: c, total, pct: Math.round(c / total * 100) });
+      }
+    });
+    totalCorrect += sC;
+    totalAttempts += sT;
+    subjectStats[subj] = { correct: sC, total: sT, pct: sT > 0 ? Math.round(sC / sT * 100) : 0, topics: topicDetails };
+  });
+
+  // Comp prep stats
+  const comp = progress.comp || {};
+  let compC = 0, compT = 0;
+  const compTopics = [];
+  Object.keys(comp).forEach(t => {
+    const d = comp[t];
+    const c = d.c || 0, total = d.t || 0;
+    compC += c; compT += total;
+    if (total > 0) compTopics.push({ topic: t, correct: c, total, pct: Math.round(c / total * 100) });
+  });
+
+  const overallPct = totalAttempts > 0 ? Math.round(totalCorrect / totalAttempts * 100) : 0;
+  const writings = progress.wr || [];
+  const streak = perfData.streak || 0;
+  const recentDone = (progress.done || []).slice(-10);
+
+  // Identify weak and strong areas
+  const allTopics = [];
+  Object.keys(subjectStats).forEach(subj => {
+    subjectStats[subj].topics.forEach(t => {
+      allTopics.push({ subject: subj, ...t });
+    });
+  });
+  const weakAreas = allTopics.filter(t => t.pct < 50 && t.total >= 3).sort((a, b) => a.pct - b.pct).slice(0, 5);
+  const strongAreas = allTopics.filter(t => t.pct >= 75 && t.total >= 3).sort((a, b) => b.pct - a.pct).slice(0, 5);
+
+  // Build email
+  const subjectRows = Object.keys(subjectStats).map(subj => {
+    const s = subjectStats[subj];
+    const colour = s.pct >= 70 ? '#16a34a' : s.pct >= 50 ? '#ca8a04' : '#dc2626';
+    const topicList = s.topics.map(t => {
+      const tc = t.pct >= 70 ? '#16a34a' : t.pct >= 50 ? '#ca8a04' : '#dc2626';
+      return t.topic + ': <span style="color:' + tc + ';">' + t.pct + '%</span> (' + t.correct + '/' + t.total + ')';
+    }).join(', ');
+    return `
+      <tr>
+        <td style="padding:8px;border:1px solid #ddd;text-transform:capitalize;font-weight:bold;">${subj}</td>
+        <td style="padding:8px;border:1px solid #ddd;text-align:center;color:${colour};font-weight:bold;">${s.pct}%</td>
+        <td style="padding:8px;border:1px solid #ddd;font-size:13px;">${topicList || 'No data yet'}</td>
+      </tr>`;
+  }).join('');
+
+  const weakHtml = weakAreas.length > 0
+    ? '<ul>' + weakAreas.map(w => '<li style="color:#dc2626;"><strong>' + w.subject + ' → ' + w.topic + '</strong>: ' + w.pct + '% (' + w.correct + '/' + w.total + ')</li>').join('') + '</ul>'
+    : '<p style="color:#6b7280;">No significant weak areas identified yet.</p>';
+
+  const strongHtml = strongAreas.length > 0
+    ? '<ul>' + strongAreas.map(s => '<li style="color:#16a34a;"><strong>' + s.subject + ' → ' + s.topic + '</strong>: ' + s.pct + '% (' + s.correct + '/' + s.total + ')</li>').join('') + '</ul>'
+    : '<p style="color:#6b7280;">Keep practising to build strong areas!</p>';
+
+  const recentHtml = recentDone.length > 0
+    ? '<table style="width:100%;border-collapse:collapse;font-size:13px;"><tr style="background:#f9f9f9;"><th style="padding:6px;border:1px solid #ddd;">Date</th><th style="padding:6px;border:1px solid #ddd;">Subject</th><th style="padding:6px;border:1px solid #ddd;">Topic</th><th style="padding:6px;border:1px solid #ddd;">Score</th></tr>' +
+      recentDone.reverse().map(d => '<tr><td style="padding:6px;border:1px solid #ddd;">' + (d.date || '—') + '</td><td style="padding:6px;border:1px solid #ddd;text-transform:capitalize;">' + (d.subject || '—') + '</td><td style="padding:6px;border:1px solid #ddd;">' + (d.topic || '—') + '</td><td style="padding:6px;border:1px solid #ddd;">' + (d.score || '—') + '</td></tr>').join('') +
+      '</table>'
+    : '<p style="color:#6b7280;">No recent quiz data.</p>';
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#333;padding:20px;">
+      <h2 style="color:#4f46e5;">📊 Weekly Progress Report — ${today}</h2>
+      <p>Hi Vivek,</p>
+      <p>Here is Riyansh's learning summary for this week.</p>
+
+      <div style="background:#f0f7ff;padding:15px;border-radius:8px;margin:10px 0;">
+        <table style="width:100%;"><tr>
+          <td style="text-align:center;"><strong style="font-size:24px;color:#4f46e5;">${overallPct}%</strong><br><span style="font-size:12px;color:#6b7280;">Overall Accuracy</span></td>
+          <td style="text-align:center;"><strong style="font-size:24px;color:#4f46e5;">${totalAttempts}</strong><br><span style="font-size:12px;color:#6b7280;">Questions Attempted</span></td>
+          <td style="text-align:center;"><strong style="font-size:24px;color:#4f46e5;">${streak}</strong><br><span style="font-size:12px;color:#6b7280;">Day Streak</span></td>
+          <td style="text-align:center;"><strong style="font-size:24px;color:#4f46e5;">${writings.length}</strong><br><span style="font-size:12px;color:#6b7280;">Writings Done</span></td>
+        </tr></table>
+      </div>
+
+      <hr style="border:1px solid #eee;">
+
+      <h3 style="color:#4f46e5;">📚 Subject Breakdown</h3>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr style="background:#f9f9f9;"><th style="padding:8px;border:1px solid #ddd;text-align:left;">Subject</th><th style="padding:8px;border:1px solid #ddd;">Accuracy</th><th style="padding:8px;border:1px solid #ddd;text-align:left;">Topics</th></tr>
+        ${subjectRows}
+        ${compT > 0 ? '<tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold;">Competition Prep</td><td style="padding:8px;border:1px solid #ddd;text-align:center;font-weight:bold;">' + Math.round(compC/compT*100) + '%</td><td style="padding:8px;border:1px solid #ddd;font-size:13px;">' + compTopics.map(t => t.topic + ': ' + t.pct + '%').join(', ') + '</td></tr>' : ''}
+      </table>
+
+      <hr style="border:1px solid #eee;">
+
+      <h3 style="color:#dc2626;">⚠️ Areas to Focus On</h3>
+      ${weakHtml}
+
+      <h3 style="color:#16a34a;">🌟 Doing Great In</h3>
+      ${strongHtml}
+
+      <hr style="border:1px solid #eee;">
+
+      <h3 style="color:#4f46e5;">📝 Recent Activity</h3>
+      ${recentHtml}
+
+      <hr style="border:1px solid #eee;">
+
+      <h3 style="color:#4f46e5;">💬 Conversation Starters</h3>
+      <ul>
+        ${weakAreas.length > 0 ? '<li>"What did you find tricky about ' + weakAreas[0].topic + ' this week?"</li>' : ''}
+        ${strongAreas.length > 0 ? '<li>"You did really well in ' + strongAreas[0].topic + '! Can you teach me what you learned?"</li>' : ''}
+        <li>"Which science video did you enjoy most this week?"</li>
+        <li>"Show me what you built in your coding lesson!"</li>
+      </ul>
+
+      <p style="text-align:center;margin-top:15px;">
+        <a href="${portalUrl}" style="display:inline-block;background:#4f46e5;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">View Full Portal</a>
+      </p>
+    </div>`;
+
+  const subject = 'Weekly Report - ' + today + ' - Overall: ' + overallPct + '% accuracy';
+  const result = await sendResendEmail(parentEmail, subject, html);
+  console.log('[Weekly] Report sent:', result.id || 'ok');
+  return { overallPct, totalAttempts, emailSent: true };
+}
 
 // =====================================================================
 // === ADMIN APIs FOR SCHEDULER ===
@@ -1790,7 +2569,7 @@ server.on('request', async (req, res) => {
       status: schedulerStatus,
       hasApiKey: !!process.env.RESEND_API_KEY,
       questionBankSize: QUESTION_BANK.length,
-      schedule: 'Mon/Wed/Fri 7:00 AM HKT',
+      schedule: 'Mon/Wed/Fri: Maths | Tue/Thu: Writing | Wed: Science | Sat: Coding | Sun: Report — 7:00 AM HKT',
       nextRun: getNextRunTime().toISOString(),
       recentRuns: (log.runs || []).slice(-10),
       recentErrors: (log.errors || []).slice(-5)
@@ -1834,6 +2613,76 @@ server.on('request', async (req, res) => {
     return;
   }
 
+  // --- Trigger English Writing Now (manual) ---
+  if (pathOnly === '/api/scheduler/trigger-writing' && req.method === 'POST') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    try {
+      const result = await createAndSendWritingPrompt();
+      appendSchedulerLog({
+        date: new Date().toISOString().slice(0, 10),
+        time: new Date().toISOString(),
+        success: true,
+        manual: true,
+        type: 'english-writing',
+        promptTitle: result.promptTitle,
+        level: result.level
+      });
+      res.end(JSON.stringify({ success: true, ...result }));
+    } catch (e) {
+      appendSchedulerError({
+        date: new Date().toISOString().slice(0, 10),
+        time: new Date().toISOString(),
+        error: e.message,
+        manual: true,
+        type: 'english-writing'
+      });
+      res.end(JSON.stringify({ success: false, error: e.message }));
+    }
+    return;
+  }
+
+  // --- Trigger Science Now (manual) ---
+  if (pathOnly === '/api/scheduler/trigger-science' && req.method === 'POST') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    try {
+      const result = await createAndSendScienceEmail();
+      appendSchedulerLog({ date: new Date().toISOString().slice(0, 10), time: new Date().toISOString(), success: true, manual: true, type: 'science-video', lessonTitle: result.lessonTitle, topic: result.topic });
+      res.end(JSON.stringify({ success: true, ...result }));
+    } catch (e) {
+      appendSchedulerError({ date: new Date().toISOString().slice(0, 10), time: new Date().toISOString(), error: e.message, manual: true, type: 'science-video' });
+      res.end(JSON.stringify({ success: false, error: e.message }));
+    }
+    return;
+  }
+
+  // --- Trigger Coding Now (manual) ---
+  if (pathOnly === '/api/scheduler/trigger-coding' && req.method === 'POST') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    try {
+      const result = await createAndSendCodingEmail();
+      appendSchedulerLog({ date: new Date().toISOString().slice(0, 10), time: new Date().toISOString(), success: true, manual: true, type: 'coding-lesson', missionName: result.missionName, stage: result.stage });
+      res.end(JSON.stringify({ success: true, ...result }));
+    } catch (e) {
+      appendSchedulerError({ date: new Date().toISOString().slice(0, 10), time: new Date().toISOString(), error: e.message, manual: true, type: 'coding-lesson' });
+      res.end(JSON.stringify({ success: false, error: e.message }));
+    }
+    return;
+  }
+
+  // --- Trigger Weekly Report Now (manual) ---
+  if (pathOnly === '/api/scheduler/trigger-report' && req.method === 'POST') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    try {
+      const result = await createAndSendWeeklyReport();
+      appendSchedulerLog({ date: new Date().toISOString().slice(0, 10), time: new Date().toISOString(), success: true, manual: true, type: 'weekly-report', overallPct: result.overallPct });
+      res.end(JSON.stringify({ success: true, ...result }));
+    } catch (e) {
+      appendSchedulerError({ date: new Date().toISOString().slice(0, 10), time: new Date().toISOString(), error: e.message, manual: true, type: 'weekly-report' });
+      res.end(JSON.stringify({ success: false, error: e.message }));
+    }
+    return;
+  }
+
   // --- Create Assignment Only (no email, for testing) ---
   if (pathOnly === '/api/scheduler/preview' && req.method === 'GET') {
     const questions = pickQuestions('riyansh', 5);
@@ -1861,6 +2710,6 @@ server.on('request', async (req, res) => {
 
 server.listen(PORT, '0.0.0.0', function() {
   console.log('Riyansh Learning Portal running on port ' + PORT);
-  console.log('Autonomous scheduler: Mon/Wed/Fri 7am HKT');
+  console.log('Autonomous scheduler: Mon/Wed/Fri Maths | Tue/Thu Writing | Wed Science | Sat Coding | Sun Report — 7am HKT');
   console.log('Resend API key:', process.env.RESEND_API_KEY ? 'configured' : 'NOT SET (scheduler will wait)');
 });
