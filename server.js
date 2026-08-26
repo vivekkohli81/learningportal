@@ -1512,6 +1512,35 @@ function pickQuestions(username, count) {
 // Uses the Resend API (https://resend.com) to send real emails.
 // Free tier: 100 emails/month, plenty for Mon/Wed/Fri assignments.
 // Requires RESEND_API_KEY env var + a verified sender domain or onboarding@resend.dev.
+// Sends to each recipient in its own request. Batching them into one call
+// means a single rejected address (e.g. the sandbox limit) also blocks the
+// recipients that would have worked.
+async function sendResendEmailEach(recipients, subject, htmlBody) {
+  const list = Array.isArray(recipients) ? recipients : [recipients];
+  const results = [];
+  for (const addr of list) {
+    try {
+      const r = await sendResendEmail(addr, subject, htmlBody);
+      results.push({ to: addr, ok: true, id: r && r.id });
+      console.log('Email sent to', addr);
+    } catch (e) {
+      results.push({ to: addr, ok: false, error: e.message });
+      console.error('Email FAILED for', addr, '-', e.message);
+      try {
+        appendSchedulerError({
+          date: new Date().toISOString().slice(0, 10),
+          time: new Date().toISOString(),
+          type: 'email',
+          recipient: addr,
+          error: e.message
+        });
+      } catch (logErr) {}
+    }
+  }
+  const delivered = results.filter(r => r.ok).length;
+  return { delivered: delivered, failed: list.length - delivered, results: results };
+}
+
 function sendResendEmail(to, subject, htmlBody) {
   return new Promise((resolve, reject) => {
     const apiKey = process.env.RESEND_API_KEY;
@@ -1549,6 +1578,14 @@ function sendResendEmail(to, subject, htmlBody) {
           const parsed = JSON.parse(data);
           if (res.statusCode >= 200 && res.statusCode < 300) {
             resolve(parsed);
+          } else if (res.statusCode === 403 && /resend\.dev|verify a domain|own email/i.test(data)) {
+            // Resend's sandbox sender can only deliver to the address that owns
+            // the Resend account. Any other recipient is rejected with a 403.
+            reject(new Error(
+              'RESEND_SANDBOX_LIMIT: The sender onboarding@resend.dev can only deliver to the email address ' +
+              'that registered the Resend account. To email anyone else, verify a domain at resend.com/domains ' +
+              'and set RESEND_FROM to an address on that domain. Raw error: ' + data
+            ));
           } else {
             reject(new Error('Resend API error ' + res.statusCode + ': ' + data));
           }
@@ -2270,7 +2307,7 @@ async function createAndSendScienceEmail() {
     </div>`;
 
   const subject = 'Science Explorer - ' + lesson.topic + ': ' + lesson.title + ' - ' + today;
-  const result = await sendResendEmail([studentEmail, parentEmail], subject, html);
+  const result = await sendResendEmailEach([studentEmail, parentEmail], subject, html);
   console.log('[Science] Email sent:', result.id || 'ok');
   return { lessonTitle: lesson.title, topic: lesson.topic, emailSent: true };
 }
@@ -2382,7 +2419,7 @@ async function createAndSendCodingEmail() {
     </div>`;
 
   const subject = 'Coding Saturday - ' + stageInfo.stage + ' - ' + mission.mission + ' - ' + today;
-  const result = await sendResendEmail([studentEmail, parentEmail], subject, html);
+  const result = await sendResendEmailEach([studentEmail, parentEmail], subject, html);
   console.log('[Coding] Email sent:', result.id || 'ok');
   return { missionName: mission.mission, stage: stageInfo.stage, emailSent: true };
 }
@@ -2568,6 +2605,10 @@ server.on('request', async (req, res) => {
       enabled: schedulerEnabled,
       status: schedulerStatus,
       hasApiKey: !!process.env.RESEND_API_KEY,
+      emailSender: process.env.RESEND_FROM || 'Riyansh Portal <onboarding@resend.dev>',
+      emailWarning: process.env.RESEND_FROM
+        ? null
+        : 'Using the Resend sandbox sender (onboarding@resend.dev). It can ONLY deliver to the email address that registered the Resend account. Emails to any other recipient (e.g. the student) are rejected with a 403. Fix: verify a domain at resend.com/domains, then set RESEND_FROM to an address on it.',
       questionBankSize: QUESTION_BANK.length,
       schedule: 'Mon/Wed/Fri: Maths | Tue/Thu: Writing | Wed: Science | Sat: Coding | Sun: Report — 7:00 AM HKT',
       nextRun: getNextRunTime().toISOString(),
