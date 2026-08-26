@@ -1687,12 +1687,12 @@ async function createAndSendAssignment() {
     </div>`;
 
   // 5. Send emails via Resend
-  const studentResult = await sendResendEmail(
+  const studentResult = await sendResendEmailEach(
     [studentEmail, parentEmail],
     'Maths Competition Prep - ' + today + ' - Your Challenge!',
     studentHtml
   );
-  console.log('[Scheduler] Student email sent:', studentResult.id || 'ok');
+  console.log('[Scheduler] Challenge delivered to ' + studentResult.delivered + ' of ' + (studentResult.delivered + studentResult.failed) + ' recipients');
 
   const parentResult = await sendResendEmail(
     parentEmail,
@@ -2193,13 +2193,14 @@ async function createAndSendWritingPrompt() {
   const typeLabel = type === 'creative' ? 'Creative Writing' : 'Structured Writing';
   const subject = 'English Writing - ' + today + ' - Level ' + levelInfo.level + ': ' + typeLabel + ' — ' + promptData.title;
 
-  // Send to student (CC parent via combined to)
-  const result = await sendResendEmail(
+  // Send to each recipient separately so one rejected address
+  // cannot block delivery to the other
+  const result = await sendResendEmailEach(
     [studentEmail, parentEmail],
     subject,
     htmlBody
   );
-  console.log('[Writing] Email sent:', result.id || 'ok');
+  console.log('[Writing] Email delivered to ' + result.delivered + ' of ' + (result.delivered + result.failed) + ' recipients');
 
   return { type, promptTitle: promptData.title, level: levelInfo.level, emailSent: true };
 }
@@ -2308,7 +2309,7 @@ async function createAndSendScienceEmail() {
 
   const subject = 'Science Explorer - ' + lesson.topic + ': ' + lesson.title + ' - ' + today;
   const result = await sendResendEmailEach([studentEmail, parentEmail], subject, html);
-  console.log('[Science] Email sent:', result.id || 'ok');
+  console.log('[Science] Email delivered to ' + result.delivered + ' of ' + (result.delivered + result.failed) + ' recipients');
   return { lessonTitle: lesson.title, topic: lesson.topic, emailSent: true };
 }
 
@@ -2420,7 +2421,7 @@ async function createAndSendCodingEmail() {
 
   const subject = 'Coding Saturday - ' + stageInfo.stage + ' - ' + mission.mission + ' - ' + today;
   const result = await sendResendEmailEach([studentEmail, parentEmail], subject, html);
-  console.log('[Coding] Email sent:', result.id || 'ok');
+  console.log('[Coding] Email delivered to ' + result.delivered + ' of ' + (result.delivered + result.failed) + ' recipients');
   return { missionName: mission.mission, stage: stageInfo.stage, emailSent: true };
 }
 
