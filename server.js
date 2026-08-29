@@ -1710,6 +1710,8 @@ async function createAndSendAssignment() {
 // Falls back to setInterval if node-cron is not installed.
 let schedulerEnabled = true; // can toggle via admin API
 let schedulerStatus = 'initialising';
+// Throttles /api/email-test so the endpoint cannot be used to spam
+let lastEmailTestAt = 0;
 
 function getNextRunTime() {
   // Calculate when the next Mon/Wed/Fri 7am HKT is
@@ -2636,6 +2638,52 @@ server.on('request', async (req, res) => {
   }
 
   // --- Toggle Scheduler On/Off ---
+  // --- Instant Email Test (GET so it can be opened in a browser) ---
+  // Sends one short email to each recipient and reports exactly what
+  // Resend said, per address. Removes the need to wait for a scheduled run.
+  if (pathOnly === '/api/email-test' && req.method === 'GET') {
+    const now = Date.now();
+    if (now - lastEmailTestAt < 60000) {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({
+        error: 'Please wait a minute between tests',
+        secondsRemaining: Math.ceil((60000 - (now - lastEmailTestAt)) / 1000)
+      }));
+      return;
+    }
+    lastEmailTestAt = now;
+
+    const testHtml = '<div style="font-family:Arial,sans-serif"><h2>Email test</h2>'
+      + '<p>If you are reading this, the learning portal can send email successfully.</p>'
+      + '<p style="color:#666;font-size:13px">Sent ' + new Date().toISOString() + '</p></div>';
+
+    const recipients = ['vivekkohli81@gmail.com', 'kohliriyansh575@gmail.com'];
+    const outcome = await sendResendEmailEach(recipients, 'Learning Portal - email test', testHtml);
+
+    const readable = outcome.results.map(r => {
+      if (r.ok) return { to: r.to, result: 'DELIVERED to Resend' };
+      let meaning = r.error;
+      if (/401/.test(r.error)) meaning = 'API KEY INVALID - the key in Railway is not accepted by Resend. Create a new key and update the Railway variable.';
+      else if (/RESEND_SANDBOX_LIMIT|403/.test(r.error)) meaning = 'BLOCKED BY SANDBOX - the key works, but onboarding@resend.dev can only reach the Resend account owner. Verify a domain and set RESEND_FROM.';
+      else if (/not set/.test(r.error)) meaning = 'NO API KEY - the variable is missing from the running container.';
+      return { to: r.to, result: 'FAILED', meaning: meaning };
+    });
+
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store'
+    });
+    res.end(JSON.stringify({
+      testedAt: new Date().toISOString(),
+      sender: process.env.RESEND_FROM || 'Riyansh Portal <onboarding@resend.dev>',
+      delivered: outcome.delivered,
+      failed: outcome.failed,
+      recipients: readable
+    }, null, 2));
+    return;
+  }
+
   if (pathOnly === '/api/scheduler/toggle' && req.method === 'POST') {
     schedulerEnabled = !schedulerEnabled;
     schedulerStatus = schedulerEnabled ? 'active' : 'paused';
