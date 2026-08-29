@@ -1543,7 +1543,8 @@ async function sendResendEmailEach(recipients, subject, htmlBody) {
 
 function sendResendEmail(to, subject, htmlBody) {
   return new Promise((resolve, reject) => {
-    const apiKey = process.env.RESEND_API_KEY;
+    // Trim in case the key was pasted with a trailing newline or space
+    const apiKey = (process.env.RESEND_API_KEY || '').trim();
     if (!apiKey) {
       reject(new Error('RESEND_API_KEY not set. Add it in Railway environment variables.'));
       return;
@@ -2606,6 +2607,21 @@ server.on('request', async (req, res) => {
       enabled: schedulerEnabled,
       status: schedulerStatus,
       hasApiKey: !!process.env.RESEND_API_KEY,
+      // Diagnostic: shows which env vars the server can actually see.
+      // NAMES ONLY — values are never exposed. Helps spot a typo in the
+      // variable name, or a variable set on the wrong Railway service.
+      envDiagnostic: {
+        resendVarsVisible: Object.keys(process.env)
+          .filter(k => /resend|mail|smtp/i.test(k))
+          .sort(),
+        looksLikeTypo: Object.keys(process.env)
+          .filter(k => /resend/i.test(k) && k !== 'RESEND_API_KEY' && k !== 'RESEND_FROM'),
+        apiKeyLength: process.env.RESEND_API_KEY ? String(process.env.RESEND_API_KEY).length : 0,
+        apiKeyLooksValid: /^re_/.test(process.env.RESEND_API_KEY || ''),
+        railwayServiceName: process.env.RAILWAY_SERVICE_NAME || null,
+        railwayEnvironment: process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT || null,
+        totalEnvVars: Object.keys(process.env).length
+      },
       emailSender: process.env.RESEND_FROM || 'Riyansh Portal <onboarding@resend.dev>',
       emailWarning: process.env.RESEND_FROM
         ? null
