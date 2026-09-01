@@ -31,6 +31,19 @@ function seedFile(filename, subdir) {
 // If RAILWAY_VOLUME_MOUNT_PATH is not set, DATA_ROOT falls back to the app
 // directory — which Railway REPLACES on every deploy. That means all student
 // progress would be lost on each upgrade. We detect and loudly warn about it.
+// === PORTAL URL ===
+// Single source of truth for links in emails. Previously some emails
+// pointed at an old GitHub Pages address, which sent the student to a
+// stale copy of the portal. Override with PORTAL_URL if the address changes.
+const PORTAL_URL = (process.env.PORTAL_URL || 'https://learningportal-production.up.railway.app/').replace(/\/?$/, '/');
+
+// === EMAIL RECIPIENTS ===
+// Overridable from Railway so addresses can change without a code edit.
+// STUDENT_EMAIL can be pointed at the parent's inbox while the sending
+// domain is unverified, since Resend's sandbox only reaches the account owner.
+const PARENT_EMAIL = process.env.PARENT_EMAIL || 'vivekkohli81@gmail.com';
+const STUDENT_EMAIL = process.env.STUDENT_EMAIL || 'kohliriyansh575@gmail.com';
+
 const USING_VOLUME = !!process.env.RAILWAY_VOLUME_MOUNT_PATH;
 if (!USING_VOLUME) {
   console.warn('==========================================================');
@@ -1604,9 +1617,9 @@ function sendResendEmail(to, subject, htmlBody) {
 // --- Create & Send Assignment (the main autonomous action) ---
 async function createAndSendAssignment() {
   const username = 'riyansh';
-  const studentEmail = 'kohliriyansh575@gmail.com';
-  const parentEmail = 'vivekkohli81@gmail.com';
-  const portalBase = 'https://learningportal-production.up.railway.app';
+  const studentEmail = STUDENT_EMAIL;
+  const parentEmail = PARENT_EMAIL;
+  const portalBase = PORTAL_URL.replace(/\/$/, '');
   const today = new Date().toISOString().slice(0, 10);
 
   console.log('[Scheduler] Creating assignment for', today);
@@ -2029,7 +2042,7 @@ function buildWritingEmail(promptData, levelInfo, type, today) {
   const { level, punctuationWeak, readingWeak } = levelInfo;
   const powerWords = pickPowerWords(type);
   const typeLabel = type === 'creative' ? 'Creative Writing' : 'Structured Writing';
-  const portalUrl = 'https://vivekkohli.github.io/learning-portal/';
+  const portalUrl = PORTAL_URL;
 
   // Word count by level
   const wordCounts = { 1: '100–150', 2: '100–150', 3: '150–200', 4: '200–250', 5: '200–300' };
@@ -2169,8 +2182,8 @@ function buildWritingEmail(promptData, levelInfo, type, today) {
 // --- Create & Send English Writing Prompt ---
 async function createAndSendWritingPrompt() {
   const username = 'riyansh';
-  const studentEmail = 'kohliriyansh575@gmail.com';
-  const parentEmail = 'vivekkohli81@gmail.com';
+  const studentEmail = STUDENT_EMAIL;
+  const parentEmail = PARENT_EMAIL;
   const today = new Date().toISOString().slice(0, 10);
 
   // Determine day type: Tue = creative, Thu = structured, Sat = creative (bonus)
@@ -2261,11 +2274,11 @@ function pickScienceLesson() {
 }
 
 async function createAndSendScienceEmail() {
-  const studentEmail = 'kohliriyansh575@gmail.com';
-  const parentEmail = 'vivekkohli81@gmail.com';
+  const studentEmail = STUDENT_EMAIL;
+  const parentEmail = PARENT_EMAIL;
   const today = new Date().toISOString().slice(0, 10);
   const lesson = pickScienceLesson();
-  const portalUrl = 'https://vivekkohli.github.io/learning-portal/';
+  const portalUrl = PORTAL_URL;
 
   console.log('[Science] Selected:', lesson.title, '(' + lesson.topic + ')');
 
@@ -2369,8 +2382,8 @@ const CODING_MISSIONS = {
 };
 
 async function createAndSendCodingEmail() {
-  const studentEmail = 'kohliriyansh575@gmail.com';
-  const parentEmail = 'vivekkohli81@gmail.com';
+  const studentEmail = STUDENT_EMAIL;
+  const parentEmail = PARENT_EMAIL;
   const today = new Date().toISOString().slice(0, 10);
   const stageInfo = getCodingStage();
 
@@ -2433,10 +2446,10 @@ async function createAndSendCodingEmail() {
 // =====================================================================
 
 async function createAndSendWeeklyReport() {
-  const parentEmail = 'vivekkohli81@gmail.com';
-  const studentEmail = 'kohliriyansh575@gmail.com';
+  const parentEmail = PARENT_EMAIL;
+  const studentEmail = STUDENT_EMAIL;
   const today = new Date().toISOString().slice(0, 10);
-  const portalUrl = 'https://learningportal-production.up.railway.app/';
+  const portalUrl = PORTAL_URL;
 
   const perfData = readPerf('riyansh');
 
@@ -2657,7 +2670,7 @@ server.on('request', async (req, res) => {
       + '<p>If you are reading this, the learning portal can send email successfully.</p>'
       + '<p style="color:#666;font-size:13px">Sent ' + new Date().toISOString() + '</p></div>';
 
-    const recipients = ['vivekkohli81@gmail.com', 'kohliriyansh575@gmail.com'];
+    const recipients = [PARENT_EMAIL, STUDENT_EMAIL];
     const outcome = await sendResendEmailEach(recipients, 'Learning Portal - email test', testHtml);
 
     const readable = outcome.results.map(r => {
