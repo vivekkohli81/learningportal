@@ -232,6 +232,69 @@ function saveQuizResult(username, result) {
 }
 
 // === COMPETITION PREP ASSIGNMENTS DATABASE ===
+// === ASSIGNMENTS LIBRARY ===
+// Every assignment the scheduler generates is stored here so the portal can
+// list it and the student can open it later. Previously writing, science and
+// coding assignments existed only inside an email — if the email was missed
+// or unreachable, the work was simply gone.
+const ASSIGNMENTS_DIR = path.join(DATA_ROOT, 'assignments');
+if (!fs.existsSync(ASSIGNMENTS_DIR)) fs.mkdirSync(ASSIGNMENTS_DIR, { recursive: true });
+
+function recordAssignment(rec) {
+  try {
+    const date = rec.date || new Date().toISOString().slice(0, 10);
+    const id = rec.id || (rec.subject + '-' + date + '-' + Date.now());
+    const full = {
+      id: id,
+      subject: rec.subject,
+      title: rec.title || rec.subject,
+      date: date,
+      createdAt: new Date().toISOString(),
+      level: rec.level || null,
+      // The full HTML body — same content the email shows, so the portal
+      // renders the real prompts, questions, diagrams and links.
+      html: rec.html || '',
+      externalUrl: rec.externalUrl || null,
+      answerMode: rec.answerMode || 'text',
+      status: 'pending',
+      submission: null
+    };
+    fs.writeFileSync(path.join(ASSIGNMENTS_DIR, id + '.json'), JSON.stringify(full, null, 2), 'utf8');
+    console.log('[Assignments] Stored', id);
+    return full;
+  } catch (e) {
+    console.error('[Assignments] Could not store assignment:', e.message);
+    return null;
+  }
+}
+
+function listAssignments() {
+  try {
+    return fs.readdirSync(ASSIGNMENTS_DIR)
+      .filter(f => f.endsWith('.json'))
+      .map(f => {
+        try { return JSON.parse(fs.readFileSync(path.join(ASSIGNMENTS_DIR, f), 'utf8')); }
+        catch (e) { return null; }
+      })
+      .filter(Boolean)
+      .sort((a, b) => (b.date + b.createdAt).localeCompare(a.date + a.createdAt));
+  } catch (e) { return []; }
+}
+
+function getAssignment(id) {
+  const safe = String(id).replace(/[^a-zA-Z0-9_-]/g, '');
+  const fp = path.join(ASSIGNMENTS_DIR, safe + '.json');
+  try {
+    if (fs.existsSync(fp)) return JSON.parse(fs.readFileSync(fp, 'utf8'));
+  } catch (e) {}
+  return null;
+}
+
+function saveAssignmentRecord(rec) {
+  const safe = String(rec.id).replace(/[^a-zA-Z0-9_-]/g, '');
+  safeWriteJSON(path.join(ASSIGNMENTS_DIR, safe + '.json'), rec, 'assignment-' + safe);
+}
+
 const COMP_PREP_DIR = path.join(DATA_ROOT, 'comp-prep');
 if (!fs.existsSync(COMP_PREP_DIR)) fs.mkdirSync(COMP_PREP_DIR, { recursive: true });
 const COMP_PREP_FILES_DIR = path.join(COMP_PREP_DIR, 'uploads');
@@ -1280,6 +1343,73 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // === ASSIGNMENTS API ===
+  // List everything the scheduler has generated, newest first.
+  if (pathOnly === '/api/assignments' && req.method === 'GET') {
+    const items = listAssignments().map(a => ({
+      id: a.id, subject: a.subject, title: a.title, date: a.date,
+      level: a.level, status: a.status, answerMode: a.answerMode,
+      externalUrl: a.externalUrl,
+      submittedAt: a.submission ? a.submission.submittedAt : null,
+      score: a.submission && a.submission.score != null ? a.submission.score : null
+    }));
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store'
+    });
+    res.end(JSON.stringify({ count: items.length, assignments: items }));
+    return;
+  }
+
+  // Full assignment including its HTML body
+  if (pathOnly.startsWith('/api/assignments/') && req.method === 'GET') {
+    const id = decodeURIComponent(pathOnly.split('/api/assignments/')[1]);
+    const a = getAssignment(id);
+    if (!a) {
+      res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'Assignment not found', id: id }));
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store'
+    });
+    res.end(JSON.stringify(a));
+    return;
+  }
+
+  // Record the student's answer against an assignment
+  if (pathOnly.startsWith('/api/assignment-submit/') && req.method === 'POST') {
+    const id = decodeURIComponent(pathOnly.split('/api/assignment-submit/')[1]);
+    const a = getAssignment(id);
+    if (!a) {
+      res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'Assignment not found' }));
+      return;
+    }
+    try {
+      const body = JSON.parse(await readBody(req));
+      a.submission = {
+        text: body.text || '',
+        fileName: body.fileName || null,
+        fileData: body.fileData || null,
+        feedback: body.feedback || null,
+        score: body.score != null ? body.score : null,
+        submittedAt: new Date().toISOString()
+      };
+      a.status = 'done';
+      saveAssignmentRecord(a);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ success: true, id: a.id, status: a.status }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   // Serve writing submission page: /writing/submit
   if (req.url.startsWith('/writing/submit')) {
     res.writeHead(200, {
@@ -1714,6 +1844,16 @@ async function createAndSendAssignment() {
     parentHtml
   );
   console.log('[Scheduler] Parent email sent:', parentResult.id || 'ok');
+
+  recordAssignment({
+    id: 'maths-' + today,
+    subject: 'maths',
+    title: 'Maths Competition Prep',
+    date: today,
+    html: studentHtml,
+    externalUrl: assignmentUrl,
+    answerMode: 'link'
+  });
 
   return { assignmentId: id, url: assignmentUrl, emailsSent: true };
 }
@@ -2221,6 +2361,14 @@ async function createAndSendWritingPrompt() {
   );
   console.log('[Writing] Email delivered to ' + result.delivered + ' of ' + (result.delivered + result.failed) + ' recipients');
 
+  recordAssignment({
+    subject: 'english',
+    title: promptData.title,
+    level: levelInfo.level,
+    html: htmlBody,
+    answerMode: 'text'
+  });
+
   return { type, promptTitle: promptData.title, level: levelInfo.level, emailSent: true };
 }
 
@@ -2329,6 +2477,14 @@ async function createAndSendScienceEmail() {
   const subject = 'Science Explorer - ' + lesson.topic + ': ' + lesson.title + ' - ' + today;
   const result = await sendResendEmailEach([studentEmail, parentEmail], subject, html);
   console.log('[Science] Email delivered to ' + result.delivered + ' of ' + (result.delivered + result.failed) + ' recipients');
+  recordAssignment({
+    subject: 'science',
+    title: lesson.topic + ': ' + lesson.title,
+    html: html,
+    externalUrl: lesson.videoUrl || null,
+    answerMode: 'text'
+  });
+
   return { lessonTitle: lesson.title, topic: lesson.topic, emailSent: true };
 }
 
@@ -2441,6 +2597,14 @@ async function createAndSendCodingEmail() {
   const subject = 'Coding Saturday - ' + stageInfo.stage + ' - ' + mission.mission + ' - ' + today;
   const result = await sendResendEmailEach([studentEmail, parentEmail], subject, html);
   console.log('[Coding] Email delivered to ' + result.delivered + ' of ' + (result.delivered + result.failed) + ' recipients');
+  recordAssignment({
+    subject: 'coding',
+    title: mission.mission,
+    html: html,
+    externalUrl: mission.resource || null,
+    answerMode: 'text'
+  });
+
   return { missionName: mission.mission, stage: stageInfo.stage, emailSent: true };
 }
 

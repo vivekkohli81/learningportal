@@ -735,6 +735,7 @@ function showKidApp(){
     <button class="nb" onclick="go('maths')">Maths</button>
     <button class="nb" onclick="go('ib7')">Year 7 MYP</button>
     <button class="nb" onclick="go('science')">Science</button>
+    <button class="nb" onclick="go('setwork')">My Assignments</button>
     <button class="nb" onclick="go('resources')">Resources</button>
     <button class="nb" onclick="go('writing')">Writing</button>
     <button class="nb" onclick="go('settings')">AI Settings</button>
@@ -1100,7 +1101,7 @@ function drawShape(name){
 function go(screen){
   curScreen=screen;
   document.querySelectorAll('.nb').forEach((b,i)=>{
-    const map=['home','english','maths','ib7','science','resources','writing','settings'];
+    const map=['home','english','maths','ib7','science','setwork','resources','writing','settings'];
     b.classList.toggle('on',map[i]===screen);
   });
   const SC=document.getElementById('SC');
@@ -1117,6 +1118,7 @@ function go(screen){
     case 'writing': openWritingCentre(); break;
     case 'homework': openHomeworkSubmission(); break;
     case 'assignments': openAssignments(); break;
+    case 'setwork': openSetAssignments(); break;
     case 'settings': renderStudentSettings(SC); break;
     default: renderHome(SC);
   }
@@ -1181,6 +1183,7 @@ function renderHome(el){
       '</table>'}
   </div>`;
   // Add homework submission card
+  el.innerHTML+='<div class="cd" onclick="go(\'setwork\')" style="cursor:pointer;border-left:4px solid #A23B72"><h3>📚 My Assignments</h3><div class="ds">Work set for you — English, Maths, Science and Coding. Open one to read it and send your answer.</div><div style="margin-top:8px;font-size:13px;color:var(--t2)">Sorted by subject and date</div></div>';
   el.innerHTML+='<div class="cd" onclick="go(\'assignments\')" style="cursor:pointer;border-left:4px solid var(--p)"><h3>📝 Timed Assignment</h3><div class="ds">A one hour paper built for your level, focused on what you find tricky. Answer on screen or print it out.</div><div style="margin-top:8px;font-size:13px;color:var(--t2)">15 questions &middot; marked automatically with feedback</div></div>';
   el.innerHTML+='<div class="cd" onclick="go(\'homework\')" style="cursor:pointer;border-left:4px solid #8b5cf6"><h3>📤 Homework Submission</h3><div class="ds">Upload your homework — PDFs, photos, Word docs, or any file. Get AI feedback on your work.</div><div style="margin-top:8px;font-size:13px;color:var(--t2)">Supports: PDF, Word, Images, Text files, and more</div></div>';
 
@@ -2539,6 +2542,301 @@ async function generateAIWritingPrompt(typeKey){
   let recentAI=S.wr.filter(function(w){return w.mode==='ai'&&w.aiFeedback;});
   let focusArea=recentAI.length>0?(recentAI[recentAI.length-1].aiFeedback.next_focus||'general writing skills'):'general writing skills';
   await generateAdaptivePrompt(typeKey,focusArea);
+}
+
+// =====================================================
+// === SET ASSIGNMENTS (from the server scheduler) =====
+// Everything the server emails is also stored, so it can
+// be opened here without depending on email at all.
+// =====================================================
+var SETA_CACHE=null;
+
+var SUBJECT_LABELS={english:'English',maths:'Maths',science:'Science',coding:'Coding',ib7:'Year 7 MYP'};
+var SUBJECT_COLOURS={english:'#A23B72',maths:'#2E86AB',science:'#16a34a',coding:'#7c3aed',ib7:'#0891b2'};
+
+function openSetAssignments(){
+  var SC=document.getElementById('SC');
+  SC.innerHTML='<div class="cd"><h2>My Assignments</h2><div class="ds">Loading your assignments...</div></div>';
+
+  fetch('/api/assignments').then(function(r){return r.json();}).then(function(d){
+    var list=(d&&d.assignments)||[];
+    if(list.length===0){
+      SC.innerHTML='<div class="cd"><h2>My Assignments</h2>'
+        +'<div class="ds">No assignments yet. New ones appear here automatically when your teacher sends them.</div></div>';
+      return;
+    }
+    SETA_CACHE=list;
+    renderSetAssignments('all');
+  }).catch(function(e){
+    SC.innerHTML='<div class="cd"><h2>My Assignments</h2>'
+      +'<div style="padding:12px;background:var(--el);border-radius:var(--r);color:var(--e)">Could not load assignments: '+e.message+'</div>'
+      +'<button class="bt bp" style="margin-top:10px" onclick="openSetAssignments()">Try Again</button></div>';
+  });
+}
+
+function renderSetAssignments(filter){
+  var SC=document.getElementById('SC');
+  var list=SETA_CACHE||[];
+
+  var pending=list.filter(function(a){return a.status!=='done';}).length;
+
+  var html='<div class="cd"><h2>My Assignments</h2>'
+    +'<div class="ds">'+list.length+' assignment'+(list.length!==1?'s':'')+' &middot; '
+    +(pending>0?('<strong>'+pending+' still to do</strong>'):'all done, great work')+'</div></div>';
+
+  // Subject filter
+  var subjects=[];
+  list.forEach(function(a){if(subjects.indexOf(a.subject)===-1)subjects.push(a.subject);});
+  html+='<div class="cd"><div class="tg">';
+  html+='<button class="'+(filter==='all'?'on':'')+'" onclick="renderSetAssignments(\'all\')">All</button>';
+  subjects.forEach(function(s){
+    html+='<button class="'+(filter===s?'on':'')+'" onclick="renderSetAssignments(\''+s+'\')">'+(SUBJECT_LABELS[s]||s)+'</button>';
+  });
+  html+='</div></div>';
+
+  var shown=filter==='all'?list:list.filter(function(a){return a.subject===filter;});
+
+  // Group by date, newest first (the API already sorts)
+  var byDate={},order=[];
+  shown.forEach(function(a){
+    var d=a.date||'undated';
+    if(!byDate[d]){byDate[d]=[];order.push(d);}
+    byDate[d].push(a);
+  });
+
+  order.forEach(function(d){
+    html+='<div class="cd"><h3 style="margin-bottom:10px">'+formatAsgDate(d)+'</h3>';
+    byDate[d].forEach(function(a){
+      var col=SUBJECT_COLOURS[a.subject]||'var(--p)';
+      var done=a.status==='done';
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--b);flex-wrap:wrap">';
+      html+='<div style="flex:1;min-width:180px">';
+      html+='<span style="display:inline-block;background:'+col+';color:#fff;font-size:11px;padding:2px 8px;border-radius:10px;margin-bottom:4px">'+(SUBJECT_LABELS[a.subject]||a.subject)+'</span>';
+      html+='<div style="font-weight:600">'+escapeHtmlAsg(a.title)+'</div>';
+      if(done){
+        html+='<div style="font-size:12px;color:var(--g)">Submitted'+(a.score!=null?' &middot; scored '+a.score:'')+'</div>';
+      } else {
+        html+='<div style="font-size:12px;color:var(--t2)">Not done yet</div>';
+      }
+      html+='</div>';
+      html+='<button class="bt '+(done?'':'bp')+'" style="font-size:13px;padding:7px 14px" onclick="openSetAssignment(\''+a.id+'\')">'+(done?'Review':'Start')+'</button>';
+      html+='</div>';
+    });
+    html+='</div>';
+  });
+
+  SC.innerHTML=html;
+}
+
+function formatAsgDate(d){
+  if(d==='undated')return 'No date';
+  try{
+    var dt=new Date(d+'T00:00:00');
+    var today=new Date();today.setHours(0,0,0,0);
+    var diff=Math.round((today-dt)/86400000);
+    var nice=dt.toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
+    if(diff===0)return 'Today';
+    if(diff===1)return 'Yesterday';
+    if(diff>1&&diff<7)return nice+' ('+diff+' days ago)';
+    return nice;
+  }catch(e){return d;}
+}
+
+// --- Open one assignment: show the real content, then let him answer ---
+function openSetAssignment(id){
+  var SC=document.getElementById('SC');
+  SC.innerHTML='<div class="cd"><div class="ds">Opening assignment...</div></div>';
+
+  fetch('/api/assignments/'+encodeURIComponent(id)).then(function(r){
+    if(!r.ok)throw new Error('Assignment not found');
+    return r.json();
+  }).then(function(a){
+    var col=SUBJECT_COLOURS[a.subject]||'var(--p)';
+    var html='<div class="cd"><button class="bt" style="font-size:13px;padding:6px 12px;background:var(--b)" onclick="openSetAssignments()">&larr; All assignments</button></div>';
+
+    html+='<div class="cd" style="border-left:4px solid '+col+'">';
+    html+='<span style="display:inline-block;background:'+col+';color:#fff;font-size:11px;padding:2px 8px;border-radius:10px">'+(SUBJECT_LABELS[a.subject]||a.subject)+'</span>';
+    html+='<h2 style="margin-top:8px">'+escapeHtmlAsg(a.title)+'</h2>';
+    html+='<div class="ds">'+formatAsgDate(a.date)+(a.level?' &middot; Level '+a.level:'')+'</div></div>';
+
+    // The assignment content itself — prompts, questions, diagrams, links.
+    // Rendered in an isolated frame so its email styling cannot affect the app.
+    html+='<div class="cd" style="padding:0;overflow:hidden">'
+      +'<iframe id="asgFrame" style="width:100%;border:0;display:block;background:#fff" scrolling="no"></iframe></div>';
+
+    if(a.externalUrl){
+      html+='<div class="cd"><a class="bt bp" style="text-decoration:none;display:inline-block" href="'+a.externalUrl+'" target="_blank" rel="noopener">Open the linked page</a></div>';
+    }
+
+    // Already submitted — show what he sent and any feedback
+    if(a.status==='done'&&a.submission){
+      html+='<div class="cd" style="background:var(--gl)"><h3>Your submission</h3>';
+      html+='<div style="font-size:12px;color:var(--t2);margin-bottom:8px">Sent '+new Date(a.submission.submittedAt).toLocaleString()+'</div>';
+      if(a.submission.text)html+='<div style="white-space:pre-wrap;font-size:14px">'+escapeHtmlAsg(a.submission.text)+'</div>';
+      if(a.submission.fileName)html+='<div style="font-size:13px;margin-top:6px">Attached: '+escapeHtmlAsg(a.submission.fileName)+'</div>';
+      if(a.submission.feedback)html+='<div style="margin-top:12px;padding:12px;background:var(--c);border-radius:var(--r)"><strong>Feedback:</strong><br>'+escapeHtmlAsg(a.submission.feedback)+'</div>';
+      html+='<button class="bt" style="margin-top:12px" onclick="showSetAnswerBox(\''+a.id+'\')">Submit again</button></div>';
+    } else {
+      html+=setAnswerBoxHtml(a.id);
+    }
+
+    SC.innerHTML=html;
+
+    // Inject the stored HTML and size the frame to its content
+    var f=document.getElementById('asgFrame');
+    if(f){
+      var doc=f.contentDocument||f.contentWindow.document;
+      doc.open();
+      doc.write('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><style>body{margin:0;padding:14px;font-family:Arial,Helvetica,sans-serif;color:#111;line-height:1.5}img{max-width:100%;height:auto}table{max-width:100%}</style></head><body>'+(a.html||'<p>No content stored for this assignment.</p>')+'</body></html>');
+      doc.close();
+      var fit=function(){
+        try{f.style.height=(doc.body.scrollHeight+24)+'px';}catch(e){}
+      };
+      setTimeout(fit,60);setTimeout(fit,400);setTimeout(fit,1200);
+    }
+  }).catch(function(e){
+    SC.innerHTML='<div class="cd"><h2>Could not open that assignment</h2>'
+      +'<div class="ds" style="color:var(--e)">'+e.message+'</div>'
+      +'<button class="bt bp" style="margin-top:10px" onclick="openSetAssignments()">Back</button></div>';
+  });
+}
+
+function setAnswerBoxHtml(id){
+  return '<div class="cd" id="setAnswerCard"><h3>Your answer</h3>'
+    +'<div class="ds">Type it here, paste it in, or upload a photo, PDF or Word file.</div>'
+    +'<textarea id="setAnswerText" style="width:100%;min-height:160px;padding:12px;border:1px solid var(--b);border-radius:8px;font-family:inherit;font-size:15px;box-sizing:border-box;margin-top:8px" placeholder="Write your answer here..." oninput="updateSetWordCount()"></textarea>'
+    +'<div id="setWordCount" style="font-size:12px;color:var(--t2);margin-top:4px">0 words</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
+    +'<button class="bt" style="background:var(--b)" onclick="document.getElementById(\'setAnswerFile\').click()">Attach a file or photo</button>'
+    +'</div>'
+    +'<input type="file" id="setAnswerFile" accept="image/*,.pdf,.doc,.docx,.txt,.rtf" style="display:none" onchange="handleSetAnswerFile(this)">'
+    +'<div id="setFileInfo" style="font-size:13px;color:var(--t2);margin-top:8px"></div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">'
+    +'<button class="bt bp" onclick="submitSetAssignment(\''+id+'\',true)">Submit &amp; get feedback</button>'
+    +'<button class="bt" onclick="submitSetAssignment(\''+id+'\',false)">Just submit</button>'
+    +'</div>'
+    +'<div id="setSubmitStatus" style="margin-top:10px"></div></div>';
+}
+
+function showSetAnswerBox(id){
+  var card=document.getElementById('setAnswerCard');
+  if(card){card.scrollIntoView({behavior:'smooth'});return;}
+  var SC=document.getElementById('SC');
+  SC.insertAdjacentHTML('beforeend',setAnswerBoxHtml(id));
+  document.getElementById('setAnswerCard').scrollIntoView({behavior:'smooth'});
+}
+
+function updateSetWordCount(){
+  var t=document.getElementById('setAnswerText');
+  var c=document.getElementById('setWordCount');
+  if(!t||!c)return;
+  var words=t.value.trim()?t.value.trim().split(/\s+/).length:0;
+  c.textContent=words+' word'+(words!==1?'s':'');
+}
+
+var _setAnswerFile=null;
+function handleSetAnswerFile(input){
+  var f=input.files&&input.files[0];
+  if(!f)return;
+  if(f.size>10*1024*1024){
+    document.getElementById('setFileInfo').innerHTML='<span style="color:var(--e)">That file is over 10MB. Please use a smaller one.</span>';
+    input.value='';return;
+  }
+  var reader=new FileReader();
+  reader.onload=function(e){
+    _setAnswerFile={name:f.name,type:f.type,data:e.target.result};
+    var kb=Math.round(f.size/1024);
+    document.getElementById('setFileInfo').textContent='Attached: '+f.name+' ('+(kb>1024?(kb/1024).toFixed(1)+' MB':kb+' KB')+')';
+  };
+  reader.readAsDataURL(f);
+}
+
+// Paste an image directly into an assignment answer
+document.addEventListener('paste',function(e){
+  if(!document.getElementById('setAnswerCard'))return;
+  var items=(e.clipboardData&&e.clipboardData.items)||[];
+  for(var i=0;i<items.length;i++){
+    if(items[i].kind==='file'){
+      var f=items[i].getAsFile();
+      if(f){
+        var reader=new FileReader();
+        reader.onload=function(ev){
+          _setAnswerFile={name:f.name||'pasted-image.png',type:f.type,data:ev.target.result};
+          var info=document.getElementById('setFileInfo');
+          if(info)info.textContent='Pasted image attached';
+        };
+        reader.readAsDataURL(f);
+        e.preventDefault();
+        return;
+      }
+    }
+  }
+});
+
+async function submitSetAssignment(id,withFeedback){
+  var textEl=document.getElementById('setAnswerText');
+  var text=textEl?textEl.value.trim():'';
+  var status=document.getElementById('setSubmitStatus');
+
+  if(!text&&!_setAnswerFile){
+    if(status)status.innerHTML='<div style="padding:10px;background:var(--wl);border-radius:var(--r)">Write something or attach a file first.</div>';
+    return;
+  }
+
+  var feedback=null,score=null;
+
+  if(withFeedback&&hasAIKey()){
+    startProgress('setSubmitStatus','',[
+      'Reading your work...',
+      'Checking spelling and punctuation...',
+      'Looking at your ideas...',
+      'Writing your feedback...'
+    ],25,true);
+    try{
+      var prompt='You are a kind, encouraging teacher marking a Year 6-7 student\'s assignment. '
+        +'Use clear, literal language with no idioms.\n\n'
+        +'Their answer:\n'+(text||'(submitted as a file)')+'\n\n'
+        +'Return ONLY JSON: {"score":0-100,"feedback":"2-4 sentences of specific, encouraging feedback","strengths":["..."],"improvements":["..."]}';
+      var raw;
+      if(_setAnswerFile&&_setAnswerFile.data&&/^data:(image|application\/pdf)/.test(_setAnswerFile.data)){
+        raw=await callAIWithFile(prompt+'\n\nThe attached file contains their work — read it.',_setAnswerFile.data,1500);
+      } else {
+        raw=await callAI(prompt,1200);
+      }
+      var parsed=parseAIJSON(raw);
+      feedback=parsed.feedback||'';
+      if(parsed.strengths&&parsed.strengths.length)feedback+='\n\nWhat went well: '+parsed.strengths.join('; ');
+      if(parsed.improvements&&parsed.improvements.length)feedback+='\n\nTo work on: '+parsed.improvements.join('; ');
+      score=parsed.score!=null?parsed.score:null;
+      completeProgress();
+    }catch(e){
+      stopProgress();
+      feedback='Could not get AI feedback ('+e.message+'). Your work has still been saved.';
+    }
+  } else {
+    if(status)status.innerHTML='<div style="padding:10px;background:var(--wl);border-radius:var(--r)">Saving your work...</div>';
+  }
+
+  try{
+    var res=await fetch('/api/assignment-submit/'+encodeURIComponent(id),{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        text:text,
+        fileName:_setAnswerFile?_setAnswerFile.name:null,
+        fileData:_setAnswerFile?_setAnswerFile.data:null,
+        feedback:feedback,
+        score:score
+      })
+    });
+    if(!res.ok)throw new Error('Server returned '+res.status);
+    _setAnswerFile=null;
+    markActive();sv();
+    openSetAssignment(id);
+  }catch(e){
+    var s2=document.getElementById('setSubmitStatus');
+    if(s2)s2.innerHTML='<div style="padding:10px;background:var(--el);border-radius:var(--r);color:var(--e)">Could not save: '+e.message+'</div>';
+  }
 }
 
 // =====================================================
@@ -4645,7 +4943,13 @@ function fetchSchedulerStatus(){
     if(d.recentRuns&&d.recentRuns.length>0){
       html+='<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:600;color:var(--t1)">Recent Runs ('+d.recentRuns.length+')</summary><table class="tb" style="margin-top:6px"><tr><th>Date</th><th>Assignment</th><th>Manual?</th></tr>';
       d.recentRuns.reverse().forEach(function(r){
-        html+='<tr><td>'+r.date+'</td><td><a href="'+r.url+'" target="_blank" style="color:var(--p)">'+r.assignmentId+'</a></td><td>'+(r.manual?'Yes':'Auto')+'</td></tr>';
+        // Only maths runs carry a url. Others previously rendered href="undefined",
+        // which the browser resolved to the portal root — the login screen.
+        var runLabel=r.assignmentId||r.promptTitle||r.missionName||r.lessonTitle||r.type||'Assignment';
+        var runCell=r.url
+          ? '<a href="'+r.url+'" target="_blank" style="color:var(--p)">'+runLabel+'</a>'
+          : escapeHtmlAsg(runLabel)+(r.type?' <span style="color:var(--t2);font-size:11px">('+r.type+')</span>':'');
+        html+='<tr><td>'+r.date+'</td><td>'+runCell+'</td><td>'+(r.manual?'Yes':'Auto')+'</td></tr>';
       });
       html+='</table></details>';
     }
