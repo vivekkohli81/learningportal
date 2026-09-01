@@ -141,7 +141,37 @@ var promptTitle = params.get('title') || 'Creative Writing';
 var wordTarget = params.get('words') || '100-150';
 var powerWords = (params.get('powerwords') || 'extraordinary,bewildered,glimmering,enormous,relieved,astonished,whispered,curious,adventure,discovered').toLowerCase().split(',');
 
-if (promptText) {
+// The assignment id, when the link came from an assignment email
+var assignmentId = params.get('a');
+
+if (assignmentId) {
+  // Load the real assignment and show the whole thing — prompt, power words,
+  // sentence starters, checklist. Previously this page only understood
+  // ?prompt= parameters, so a link without them showed "write about anything".
+  document.getElementById('promptDisplay').innerHTML = '<em>Loading your assignment...</em>';
+  fetch('/api/assignments/' + encodeURIComponent(assignmentId))
+    .then(function(r){ if(!r.ok) throw new Error('not found'); return r.json(); })
+    .then(function(a){
+      var head = document.querySelector('#promptCard h2');
+      if (head) head.textContent = a.title || 'Your Writing Assignment';
+      var box = document.getElementById('promptDisplay');
+      box.innerHTML = '';
+      var frame = document.createElement('iframe');
+      frame.style.cssText = 'width:100%;border:0;display:block;background:#fff';
+      frame.setAttribute('scrolling','no');
+      box.appendChild(frame);
+      var doc = frame.contentDocument || frame.contentWindow.document;
+      doc.open();
+      doc.write('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><style>body{margin:0;padding:12px;font-family:Arial,Helvetica,sans-serif;color:#111;line-height:1.5;font-size:15px}img{max-width:100%;height:auto}table{max-width:100%;width:100%}</style></head><body>' + (a.html || '<p>No details stored.</p>') + '</body></html>');
+      doc.close();
+      var fit = function(){ try { frame.style.height = (doc.body.scrollHeight + 20) + 'px'; } catch(e){} };
+      setTimeout(fit,60); setTimeout(fit,400); setTimeout(fit,1200);
+    })
+    .catch(function(){
+      document.getElementById('promptDisplay').innerHTML =
+        '<em>Could not load that assignment. You can still write below and submit.</em>';
+    });
+} else if (promptText) {
   document.getElementById('promptDisplay').innerHTML = '<strong>' + decodeURIComponent(promptText) + '</strong><br><br><strong>Word Count Target:</strong> ' + wordTarget + ' words';
 } else {
   document.getElementById('promptDisplay').innerHTML = '<em>No specific prompt provided. Write about anything you like! Aim for ' + wordTarget + ' words.</em>';
@@ -449,6 +479,31 @@ function submitWriting() {
       if (d.success) {
         showStatus('Submitted! See your feedback below.', 'success');
         btn.textContent = 'Submitted!';
+
+        // If this came from an assignment link, mark that assignment done and
+        // feed the score back so the next one adapts in difficulty.
+        if (assignmentId) {
+          var pct = feedback && feedback.overall ? Math.round((feedback.overall / 5) * 100) : null;
+          fetch('/api/assignment-submit/' + encodeURIComponent(assignmentId), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: 'riyansh',
+              text: text || '',
+              fileName: uploadedFile ? uploadedFile.name : null,
+              score: pct,
+              feedback: feedback ? (feedback.summary || '') : null
+            })
+          }).then(function(r){ return r.json(); })
+            .then(function(res){
+              if (res && res.levelChange) {
+                var lc = res.levelChange;
+                if (lc.levelAfter > lc.levelBefore) showStatus('Great work — your next assignment will be a bit harder.', 'success');
+                else if (lc.levelAfter < lc.levelBefore) showStatus('Saved. The next one will be a little easier so you can build confidence.', 'success');
+              }
+            })
+            .catch(function(){});
+        }
         // Show feedback
         if (feedback) {
           document.getElementById('feedbackContent').innerHTML = renderFeedback(feedback);

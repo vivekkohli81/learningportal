@@ -295,6 +295,56 @@ function saveAssignmentRecord(rec) {
   safeWriteJSON(path.join(ASSIGNMENTS_DIR, safe + '.json'), rec, 'assignment-' + safe);
 }
 
+// Feeds a marked assignment back into the student's progress so the NEXT
+// assignment adapts. Without this, work submitted through the portal is
+// stored but never influences difficulty — the loop stays open.
+//
+// Uses the same rules as the portal quizzes: 80%+ moves the level up,
+// under 40% moves it down, levels clamp to 1..5.
+function applyAssignmentToProgress(username, subject, score) {
+  if (score == null || !subject) return null;
+  const topicFor = { english: 'writing', science: 'biology', maths: 'problemSolving' };
+  const topic = topicFor[subject];
+  if (!topic) return null;   // coding has no graded topic
+
+  try {
+    const fp = getSyncPath(username);
+    if (!fs.existsSync(fp)) return null;
+    const rec = JSON.parse(fs.readFileSync(fp, 'utf8'));
+    if (!rec || !rec.progress) return null;
+
+    const p = rec.progress;
+    if (!p[subject]) p[subject] = {};
+    if (!p[subject][topic]) p[subject][topic] = { lv: 1, ok: 0, no: 0, h: [], sn: [], mk: [] };
+    const t = p[subject][topic];
+
+    // Treat the assignment as 10 questions so it carries sensible weight
+    const correct = Math.round((score / 100) * 10);
+    t.ok = (t.ok || 0) + correct;
+    t.no = (t.no || 0) + (10 - correct);
+    t.h = t.h || [];
+    t.h.push({ date: new Date().toDateString(), score: correct, total: 10, pct: score });
+
+    const before = t.lv || 1;
+    if (score >= 80 && t.lv < 5) t.lv = (t.lv || 1) + 1;
+    else if (score < 40 && t.lv > 1) t.lv = (t.lv || 1) - 1;
+
+    p.total = (p.total || 0) + 1;
+    p.done = p.done || [];
+    p.done.push({ date: new Date().toDateString(), subject: subject, topic: topic, score: score + '%' });
+
+    rec.progress = p;
+    rec.lastSyncDate = new Date().toISOString();
+    safeWriteJSON(fp, rec, 'sync-' + String(username).replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase());
+
+    console.log('[Assignments] ' + subject + '/' + topic + ' level ' + before + ' -> ' + t.lv + ' (scored ' + score + '%)');
+    return { subject, topic, levelBefore: before, levelAfter: t.lv, score };
+  } catch (e) {
+    console.error('[Assignments] Could not apply score to progress:', e.message);
+    return null;
+  }
+}
+
 const COMP_PREP_DIR = path.join(DATA_ROOT, 'comp-prep');
 if (!fs.existsSync(COMP_PREP_DIR)) fs.mkdirSync(COMP_PREP_DIR, { recursive: true });
 const COMP_PREP_FILES_DIR = path.join(COMP_PREP_DIR, 'uploads');
@@ -1401,8 +1451,17 @@ const server = http.createServer(async (req, res) => {
       };
       a.status = 'done';
       saveAssignmentRecord(a);
+
+      // Close the loop: a marked assignment adjusts the level used to
+      // generate the next one.
+      const adjustment = applyAssignmentToProgress(
+        body.username || 'riyansh',
+        a.subject,
+        a.submission.score
+      );
+
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ success: true, id: a.id, status: a.status }));
+      res.end(JSON.stringify({ success: true, id: a.id, status: a.status, levelChange: adjustment }));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ error: e.message }));
@@ -2135,44 +2194,74 @@ function pickWritingPrompt(type) {
 }
 
 // Determine writing level from performance data
-function getWritingLevel(perfData) {
-  if (!perfData) return { level: 2, punctuationWeak: true, readingWeak: false, writingsCount: 0 };
+// Reads the student's real performance to decide writing difficulty.
+//
+// This previously looked for perfData.progress.english.writing.lv and .c/.t
+// counters. The performance file the portal actually uploads has no
+// "progress" key at all — it stores topicLevels / topicAccuracy, with ok/no
+// counters. So every lookup missed and the level was pinned at 2 forever,
+// with punctuation and reading always reported weak. Now it reads the real
+// shape, and falls back to the full sync record if one exists.
+function getWritingLevel(perfData, username) {
+  const fallback = { level: 2, punctuationWeak: true, readingWeak: false, writingsCount: 0 };
+  if (!perfData && !username) return fallback;
 
-  const progress = perfData.progress || {};
-  const english = progress.english || {};
-
-  // Check topicLevels
-  let level = 2; // default
-  if (english.writing && english.writing.lv) {
-    level = Math.max(1, Math.min(5, english.writing.lv));
-  } else {
-    // Infer from accuracy
-    const writingTopic = english.writing || {};
-    const correct = writingTopic.c || 0;
-    const total = writingTopic.t || 0;
-    if (total > 0) {
-      const pct = correct / total;
-      if (pct >= 0.8) level = 4;
-      else if (pct >= 0.6) level = 3;
-      else if (pct >= 0.4) level = 2;
-      else level = 1;
+  // The cross-device sync file holds the complete progress object
+  let syncProgress = null;
+  try {
+    if (username) {
+      const fp = getSyncPath(username);
+      if (fs.existsSync(fp)) {
+        const rec = JSON.parse(fs.readFileSync(fp, 'utf8'));
+        syncProgress = rec && rec.progress ? rec.progress : null;
+      }
     }
+  } catch (e) {}
+
+  const topicLevels = (perfData && perfData.topicLevels) || {};
+  const topicAcc = (perfData && perfData.topicAccuracy) || {};
+
+  // Reads a topic from whichever source has it, normalising ok/no counters
+  function topic(name) {
+    const eng = (syncProgress && syncProgress.english) || {};
+    if (eng[name] && ((eng[name].ok || 0) + (eng[name].no || 0)) > 0) {
+      return { lv: eng[name].lv || null, ok: eng[name].ok || 0, no: eng[name].no || 0 };
+    }
+    const acc = topicAcc['english.' + name];
+    if (acc) return { lv: acc.level || null, ok: acc.ok || 0, no: acc.no || 0 };
+    const lv = topicLevels['english.' + name];
+    return lv ? { lv: lv, ok: 0, no: 0 } : null;
   }
 
-  // Check punctuation weakness
-  const punct = english.punctuation || {};
-  const punctTotal = punct.t || 0;
-  const punctCorrect = punct.c || 0;
-  const punctuationWeak = punctTotal === 0 || (punctCorrect / punctTotal) < 0.6;
+  function accuracyOf(t) {
+    if (!t) return null;
+    const total = t.ok + t.no;
+    return total > 0 ? t.ok / total : null;
+  }
 
-  // Check reading weakness
-  const reading = english.reading || {};
-  const readTotal = reading.t || 0;
-  const readCorrect = reading.c || 0;
-  const readingWeak = readTotal === 0 || (readCorrect / readTotal) < 0.6;
+  const writing = topic('writing');
+  const punct = topic('punctuation');
+  const reading = topic('reading');
 
-  // Count writings
-  const writingsCount = (perfData.progress && perfData.progress.wr) ? perfData.progress.wr.length : 0;
+  // Prefer the stored level; otherwise infer from accuracy
+  let level = 2;
+  if (writing && writing.lv) {
+    level = Math.max(1, Math.min(5, writing.lv));
+  } else {
+    const acc = accuracyOf(writing);
+    if (acc !== null) level = acc >= 0.8 ? 4 : acc >= 0.6 ? 3 : acc >= 0.4 ? 2 : 1;
+  }
+
+  // A topic counts as weak only when there is evidence for it. With no data
+  // we assume weak, so early assignments include the extra support.
+  const punctAcc = accuracyOf(punct);
+  const readAcc = accuracyOf(reading);
+  const punctuationWeak = punctAcc === null ? true : punctAcc < 0.6;
+  const readingWeak = readAcc === null ? true : readAcc < 0.6;
+
+  const writingsCount = (syncProgress && Array.isArray(syncProgress.wr))
+    ? syncProgress.wr.length
+    : ((perfData && typeof perfData.writings === 'number') ? perfData.writings : 0);
 
   return { level, punctuationWeak, readingWeak, writingsCount };
 }
@@ -2311,7 +2400,7 @@ function buildWritingEmail(promptData, levelInfo, type, today) {
       <h3 style="color:#A23B72;">📝 How to Submit</h3>
       <p>Click the button below. You can <strong>type</strong> your story, <strong>paste</strong> it in, or <strong>upload a photo, PDF or Word file</strong> if you wrote it on paper or somewhere else. Your AI teacher marks it straight away.</p>
       <p style="text-align:center;">
-        <a href="${portalUrl}writing/submit" style="display:inline-block;background:#2E86AB;color:white;padding:14px 28px;border-radius:6px;text-decoration:none;font-weight:bold;font-size:16px;">Write &amp; Submit Here</a>
+        <a href="${portalUrl}writing/submit?a=english-${today}" style="display:inline-block;background:#2E86AB;color:white;padding:14px 28px;border-radius:6px;text-decoration:none;font-weight:bold;font-size:16px;">Write &amp; Submit Here</a>
       </p>
       <p style="text-align:center;font-size:13px;color:#666;">
         or open the full portal: <a href="${portalUrl}" style="color:#2E86AB;">${portalUrl}</a>
@@ -2339,7 +2428,7 @@ async function createAndSendWritingPrompt() {
 
   // Read performance data (directly from disk, no HTTP needed)
   const perfData = readPerf(username);
-  const levelInfo = getWritingLevel(perfData);
+  const levelInfo = getWritingLevel(perfData, username);
   console.log('[Writing] Level:', levelInfo.level, '| Punctuation weak:', levelInfo.punctuationWeak, '| Writings done:', levelInfo.writingsCount);
 
   // Pick a prompt
@@ -2362,8 +2451,10 @@ async function createAndSendWritingPrompt() {
   console.log('[Writing] Email delivered to ' + result.delivered + ' of ' + (result.delivered + result.failed) + ' recipients');
 
   recordAssignment({
+    id: 'english-' + today,
     subject: 'english',
     title: promptData.title,
+    date: today,
     level: levelInfo.level,
     html: htmlBody,
     answerMode: 'text'
