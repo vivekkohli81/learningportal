@@ -97,15 +97,15 @@ input[type="file"]{display:none}
   <div class="or-divider">— OR —</div>
 
   <div class="card">
-    <h2>Option 2: Upload a Photo</h2>
-    <p style="font-size:13px;color:#64748b;margin-bottom:10px">Wrote it on paper? Take a clear photo and upload it here.</p>
+    <h2>Option 2: Upload Your Work</h2>
+    <p style="font-size:13px;color:#64748b;margin-bottom:10px">Wrote it on paper or in another app? Upload a photo, PDF or Word file. You can also paste a picture straight in with Ctrl+V.</p>
     <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
-      <p>Tap here to upload a photo</p>
-      <p style="font-size:12px;color:#94a3b8;margin-top:4px">JPG, PNG — max 10MB</p>
+      <p>Tap here to choose a file</p>
+      <p style="font-size:12px;color:#94a3b8;margin-top:4px">Photo, PDF, Word or text — max 10MB</p>
       <div class="filename" id="fileName" style="display:none"></div>
       <img id="previewImg" class="preview-img" style="display:none">
     </div>
-    <input type="file" id="fileInput" accept="image/*" onchange="handleFileSelect(event)">
+    <input type="file" id="fileInput" accept="image/*,.pdf,.doc,.docx,.txt,.rtf,.pages,.odt" onchange="handleFileSelect(event)">
   </div>
 
   <div class="card">
@@ -168,21 +168,53 @@ textarea.addEventListener('input', function() {
 var uploadedFile = null, uploadedBase64 = null;
 function handleFileSelect(event) {
   var file = event.target.files[0];
+  acceptFile(file);
+}
+
+// Shared by the file picker and by pasting, so both behave the same way
+function acceptFile(file) {
   if (!file) return;
-  if (file.size > 10*1024*1024) { alert('File too large! Use a photo under 10MB.'); return; }
+  if (file.size > 10*1024*1024) { alert('That file is too big. Please keep it under 10MB.'); return; }
   uploadedFile = file;
-  document.getElementById('fileName').style.display = 'block';
-  document.getElementById('fileName').textContent = file.name;
+
+  var nameEl = document.getElementById('fileName');
+  nameEl.style.display = 'block';
+  var sizeKb = Math.round(file.size/1024);
+  var sizeText = sizeKb > 1024 ? (sizeKb/1024).toFixed(1)+' MB' : sizeKb+' KB';
+  nameEl.textContent = (file.name || 'pasted-image.png') + '  (' + sizeText + ')';
   document.getElementById('uploadArea').classList.add('has-file');
+
+  var img = document.getElementById('previewImg');
   var reader = new FileReader();
   reader.onload = function(e) {
     uploadedBase64 = e.target.result;
-    var img = document.getElementById('previewImg');
-    img.src = e.target.result;
-    img.style.display = 'block';
+    // Only images can be previewed; other file types just show the name
+    if (file.type && file.type.indexOf('image/') === 0) {
+      img.src = e.target.result;
+      img.style.display = 'block';
+    } else {
+      img.style.display = 'none';
+    }
   };
   reader.readAsDataURL(file);
 }
+
+// Paste a screenshot or copied image anywhere on the page
+document.addEventListener('paste', function(e) {
+  var items = (e.clipboardData && e.clipboardData.items) || [];
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].kind === 'file') {
+      var f = items[i].getAsFile();
+      if (f) {
+        acceptFile(f);
+        var st = document.getElementById('statusMsg');
+        if (st) { st.textContent = 'Picture pasted. Now press Submit.'; st.style.color = '#059669'; }
+        e.preventDefault();
+        return;
+      }
+    }
+  }
+});
 
 function toggleCheck(el) {
   el.classList.toggle('checked');

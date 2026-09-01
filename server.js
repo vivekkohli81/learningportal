@@ -2169,9 +2169,12 @@ function buildWritingEmail(promptData, levelInfo, type, today) {
       <hr style="border:1px solid #eee;">
 
       <h3 style="color:#A23B72;">📝 How to Submit</h3>
-      <p>Go to your portal and type your story in the Writing section:</p>
+      <p>Click the button below. You can <strong>type</strong> your story, <strong>paste</strong> it in, or <strong>upload a photo, PDF or Word file</strong> if you wrote it on paper or somewhere else. Your AI teacher marks it straight away.</p>
       <p style="text-align:center;">
-        <a href="${portalUrl}" style="display:inline-block;background:#2E86AB;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">Open Learning Portal</a>
+        <a href="${portalUrl}writing/submit" style="display:inline-block;background:#2E86AB;color:white;padding:14px 28px;border-radius:6px;text-decoration:none;font-weight:bold;font-size:16px;">Write &amp; Submit Here</a>
+      </p>
+      <p style="text-align:center;font-size:13px;color:#666;">
+        or open the full portal: <a href="${portalUrl}" style="color:#2E86AB;">${portalUrl}</a>
       </p>
       <p>${type === 'creative' ? 'Have fun with it — your imagination is your superpower! 🚀' : 'Take your time and plan before you write. Good structure = great writing! 📐'}</p>
     </div>`;
@@ -2733,7 +2736,9 @@ server.on('request', async (req, res) => {
   }
 
   // --- Trigger English Writing Now (manual) ---
-  if (pathOnly === '/api/scheduler/trigger-writing' && req.method === 'POST') {
+  // GET is allowed too so the assignment can be sent on demand by simply
+  // opening the URL in a browser — POST needs a tool the user may not have.
+  if (pathOnly === '/api/scheduler/trigger-writing' && (req.method === 'POST' || req.method === 'GET')) {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     try {
       const result = await createAndSendWritingPrompt();
